@@ -1,0 +1,99 @@
+use std::collections::BTreeMap;
+use std::error::Error;
+
+use crate::StainlessStats;
+use crate::codegen::OpenApiSchema;
+use crate::util::codegen_buf::CodegenBuf;
+
+pub fn render(
+    _stainless_stats: &StainlessStats,
+    schemas: BTreeMap<String, OpenApiSchema>,
+) -> Result<CodegenBuf, Box<dyn Error>> {
+    let mut buf = CodegenBuf::new();
+    for (name, schema) in schemas {
+        buf.start_line();
+        buf.write(format!("export type {name} = "));
+        render_schema(&mut buf, schema)?;
+        buf.write(";");
+        buf.end_line();
+    }
+    Ok(buf)
+}
+
+fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<dyn Error>> {
+    match schema {
+        OpenApiSchema::AnyOf { any_of } => {
+            let expanded = any_of.len() > 3;
+            if expanded {
+                buf.indent();
+            }
+            for (i, schema) in any_of.into_iter().enumerate() {
+                if expanded {
+                    buf.end_line();
+                    buf.start_line();
+                    buf.write(" | ");
+                } else if i > 0 {
+                    buf.write(" | ");
+                }
+                render_schema(buf, schema)?;
+            }
+            if expanded {
+                buf.unindent();
+            }
+        }
+        OpenApiSchema::Object { .. } => Err("object schemas unsupported")?,
+        OpenApiSchema::ArrayList {
+            _description: _,
+            _type: _,
+            items,
+            title: _,
+        } => {
+            buf.write("[");
+            render_schema(buf, *items)?;
+            buf.write("]")
+        }
+        OpenApiSchema::ArrayTuple {
+            additional_items: true,
+            ..
+        } => Err("tuple-type arrays with `items: true` unsupported")?,
+        OpenApiSchema::ArrayTuple {
+            _description: _,
+            _type: _,
+            additional_items: false,
+            prefix_items,
+            x_turbopuffer_variant_name: _,
+            x_turbopuffer_variant_drop_on_conflict: _,
+            title: _,
+        } => {
+            buf.write("[");
+            for (i, schema) in prefix_items.into_iter().enumerate() {
+                if i > 0 {
+                    buf.write(", ");
+                }
+                render_schema(buf, schema)?;
+            }
+            buf.write("]")
+        }
+        OpenApiSchema::String {
+            _description: _,
+            _type: _,
+            title: _,
+        } => buf.write("string"),
+        OpenApiSchema::Number {
+            _description: _,
+            _type: _,
+            title: _,
+        } => buf.write("number"),
+        OpenApiSchema::Const {
+            _description: _,
+            sconst,
+            title: _,
+        } => buf.write(format!("\"{sconst}\"")),
+        OpenApiSchema::Ref { sref, title: _ } => match sref.strip_prefix("#/components/schemas/") {
+            None => Err(format!("unsupported reference: {sref}"))?,
+            Some(name) => buf.write(name),
+        },
+        OpenApiSchema::Any { .. } => buf.write("Any"),
+    }
+    Ok(())
+}

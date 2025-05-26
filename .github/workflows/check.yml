@@ -1,0 +1,24 @@
+name: Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
+
+      - uses: actions-rust-lang/rustfmt@v1
+        with:
+          check: true
+
+      - run: cargo check --all-targets
+
+      - uses: actions-rust-lang/audit@v1
