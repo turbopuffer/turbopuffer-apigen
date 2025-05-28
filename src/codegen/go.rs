@@ -138,6 +138,7 @@ fn render_schema(
             prefix_items,
             x_turbopuffer_variant_name: _,
             x_turbopuffer_variant_drop_on_conflict: _,
+            x_turbopuffer_flatten: _,
             title: _,
         } => {
             // Since Go doesn't natively support tuples, we convert each tuple
@@ -149,31 +150,65 @@ fn render_schema(
                 Err("tuple-type arrays in unsupported position")?
             };
 
-            // Ditch any consts. We don't need them.
-            let fields = prefix_items
-                .iter()
-                .enumerate()
-                .map(|(i, item)| {
-                    let name = match item.title() {
-                        Some(name) => name.to_string(),
-                        None => format!("f{i}"),
-                    };
-                    (name, item)
-                })
-                .collect::<Vec<_>>();
+            enum Field<'a> {
+                Normal {
+                    name: String,
+                    schema: &'a OpenApiSchema,
+                },
+                Const(&'a str),
+                StartIndent,
+                EndIndent,
+            }
 
+            fn build_fields<'a>(
+                out: &mut Vec<Field<'a>>,
+                i: &mut usize,
+                prefix_items: &'a [OpenApiSchema],
+            ) {
+                for item in prefix_items {
+                    match item {
+                        OpenApiSchema::Const { sconst, .. } => {
+                            out.push(Field::Const(sconst));
+                        }
+                        OpenApiSchema::ArrayTuple {
+                            x_turbopuffer_flatten: true,
+                            prefix_items,
+                            ..
+                        } => {
+                            out.push(Field::StartIndent);
+                            build_fields(out, i, prefix_items);
+                            out.push(Field::EndIndent);
+                        }
+                        _ => {
+                            out.push(Field::Normal {
+                                name: match item.title() {
+                                    Some(name) => name.to_string(),
+                                    None => format!("f{i}"),
+                                },
+                                schema: item,
+                            });
+                        }
+                    }
+                    *i += 1;
+                }
+            }
+
+            let mut fields = vec![];
+            build_fields(&mut fields, &mut 0, prefix_items);
             let fields_no_consts = fields
                 .iter()
-                .filter(|(_name, item)| !matches!(item, OpenApiSchema::Const { .. }))
+                .filter(|f| !matches!(f, Field::Const { .. }))
                 .collect::<Vec<_>>();
 
             // Struct definition.
             buf.write_block("struct", |buf| {
-                for (name, item) in &fields_no_consts {
-                    buf.start_line();
-                    buf.write(format!("{name} "));
-                    render_schema(schemas, buf, None, item)?;
-                    buf.end_line();
+                for field in &fields_no_consts {
+                    if let Field::Normal { name, schema } = field {
+                        buf.start_line();
+                        buf.write(format!("{name} "));
+                        render_schema(schemas, buf, None, schema)?;
+                        buf.end_line();
+                    }
                 }
                 Ok::<_, Box<dyn Error>>(())
             })?;
@@ -181,18 +216,22 @@ fn render_schema(
             // Constructor function.
             buf.writeln(format!("func New{name}("));
             buf.indent();
-            for (name, item) in &fields_no_consts {
-                buf.start_line();
-                buf.write(format!("{name} "));
-                render_schema(schemas, buf, None, item)?;
-                buf.write(", ");
-                buf.end_line();
+            for field in &fields_no_consts {
+                if let Field::Normal { name, schema } = field {
+                    buf.start_line();
+                    buf.write(format!("{name} "));
+                    render_schema(schemas, buf, None, schema)?;
+                    buf.write(", ");
+                    buf.end_line();
+                }
             }
             buf.unindent();
             buf.write_block(format!(") {name}"), |buf| {
                 buf.write_block(format!("return {name}"), |buf| {
-                    for (name, _item) in &fields_no_consts {
-                        buf.writeln(format!("{name},"));
+                    for field in &fields_no_consts {
+                        if let Field::Normal { name, .. } = field {
+                            buf.writeln(format!("{name},"));
+                        }
                     }
                     Ok::<_, Box<dyn Error>>(())
                 })?;
@@ -204,11 +243,22 @@ fn render_schema(
                 |buf| {
                     buf.writeln("return shimjson.Marshal([]any{");
                     buf.indent();
-                    for (name, item) in &fields {
-                        if let OpenApiSchema::Const { sconst, .. } = item {
-                            buf.writeln(format!("\"{sconst}\","));
-                        } else {
-                            buf.writeln(format!("v.{name},"));
+                    for field in &fields {
+                        match field {
+                            Field::Const(sconst) => {
+                                buf.writeln(format!("\"{sconst}\","));
+                            }
+                            Field::StartIndent => {
+                                buf.writeln("[]any{");
+                                buf.indent();
+                            }
+                            Field::EndIndent => {
+                                buf.unindent();
+                                buf.writeln("},");
+                            }
+                            Field::Normal { name, schema: _ } => {
+                                buf.writeln(format!("v.{name},"));
+                            }
                         }
                     }
                     buf.unindent();

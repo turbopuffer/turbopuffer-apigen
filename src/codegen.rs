@@ -63,6 +63,9 @@ pub enum OpenApiSchema {
         #[serde(rename = "x-turbopuffer-variant-drop-on-conflict")]
         #[serde(default)]
         x_turbopuffer_variant_drop_on_conflict: bool,
+        #[serde(rename = "x-turbopuffer-flatten")]
+        #[serde(default)]
+        x_turbopuffer_flatten: bool,
         #[serde(rename = "title")]
         title: Option<String>,
     },

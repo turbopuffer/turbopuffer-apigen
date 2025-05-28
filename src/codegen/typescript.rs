@@ -61,6 +61,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             prefix_items,
             x_turbopuffer_variant_name: _,
             x_turbopuffer_variant_drop_on_conflict: _,
+            x_turbopuffer_flatten: _,
             title: _,
         } => {
             buf.write("[");
