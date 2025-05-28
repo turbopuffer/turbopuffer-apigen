@@ -80,10 +80,10 @@ pub fn run(language: Language) -> Result<(), Box<dyn Error>> {
     }
 
     let content = match language {
-        Language::Go => codegen::go::render(&stainless_stats, parsed_schemas)?,
-        Language::Java => codegen::java::render(&stainless_stats, parsed_schemas)?,
-        Language::Python => codegen::python::render(&stainless_stats, parsed_schemas)?,
-        Language::Typescript => codegen::typescript::render(&stainless_stats, parsed_schemas)?,
+        Language::Go => codegen::go::render(parsed_schemas)?,
+        Language::Java => codegen::java::render(parsed_schemas)?,
+        Language::Python => codegen::python::render(parsed_schemas)?,
+        Language::Typescript => codegen::typescript::render(parsed_schemas)?,
     };
 
     print!("{}", content.into_string());
