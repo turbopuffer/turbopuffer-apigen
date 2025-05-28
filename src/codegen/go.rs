@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, error::Error, mem};
 
 use crate::{
-    codegen::{OpenApiSchema, SCHEMA_REF_PREFIX},
+    codegen::{OpenApiSchema, SCHEMA_REF_PREFIX, strip_schema_ref_prefix},
     util::codegen_buf::CodegenBuf,
 };
 
@@ -334,9 +334,4 @@ fn render_any_of_refs(
     render(schemas, buf, &fn_name, schema)?;
 
     Ok(())
-}
-
-fn strip_schema_ref_prefix(sref: &str) -> Result<&str, Box<dyn Error>> {
-    sref.strip_prefix(SCHEMA_REF_PREFIX)
-        .ok_or_else(|| format!("unsupported reference: {sref}").into())
 }

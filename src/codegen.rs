@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, error::Error};
 
 use monostate::MustBe;
 use serde::Deserialize;
@@ -10,7 +10,7 @@ pub mod typescript;
 
 const SCHEMA_REF_PREFIX: &str = "#/components/schemas/";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all_fields = "camelCase")]
@@ -23,8 +23,7 @@ pub enum OpenApiSchema {
         _description: Option<String>,
         #[serde(rename = "type")]
         _type: MustBe!("object"),
-        #[serde(rename = "properties")]
-        _properties: BTreeMap<String, OpenApiSchema>,
+        properties: BTreeMap<String, OpenApiSchema>,
         #[serde(rename = "title")]
         title: Option<String>,
     },
@@ -125,4 +124,9 @@ impl OpenApiSchema {
 
 fn default_true() -> bool {
     true
+}
+
+fn strip_schema_ref_prefix(sref: &str) -> Result<&str, Box<dyn Error>> {
+    sref.strip_prefix(SCHEMA_REF_PREFIX)
+        .ok_or_else(|| format!("unsupported reference: {sref}").into())
 }
