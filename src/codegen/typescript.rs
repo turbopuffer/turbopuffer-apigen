@@ -20,7 +20,10 @@ pub fn render(schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf, Bo
 
 fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<dyn Error>> {
     match schema {
-        OpenApiSchema::AnyOf { any_of } => {
+        OpenApiSchema::AnyOf {
+            _description: _,
+            any_of,
+        } => {
             let expanded = any_of.len() > 3;
             if expanded {
                 buf.indent();

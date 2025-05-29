@@ -39,7 +39,11 @@ fn extract_any_of_tuples(
 
     let mut new_schemas = BTreeMap::new();
     for (name, schema) in &mut *schemas {
-        if let OpenApiSchema::AnyOf { any_of } = schema {
+        if let OpenApiSchema::AnyOf {
+            _description: _,
+            any_of,
+        } = schema
+        {
             any_of.retain(|item| {
                 !matches!(
                     item,
@@ -102,7 +106,10 @@ fn render_schema(
     schema: &OpenApiSchema,
 ) -> Result<(), Box<dyn Error>> {
     match schema {
-        OpenApiSchema::AnyOf { any_of } => {
+        OpenApiSchema::AnyOf {
+            _description: _,
+            any_of,
+        } => {
             if any_of
                 .iter()
                 .all(|s| matches!(s, OpenApiSchema::Const { .. }))
@@ -369,7 +376,10 @@ fn render_any_of_refs(
             };
             let sref = strip_schema_ref_prefix(sref)?;
             match &schemas[sref] {
-                OpenApiSchema::AnyOf { any_of }
+                OpenApiSchema::AnyOf {
+                    _description: _,
+                    any_of,
+                }
                     if any_of
                         .iter()
                         .all(|s| matches!(s, OpenApiSchema::Ref { .. })) =>

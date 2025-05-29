@@ -16,6 +16,8 @@ const SCHEMA_REF_PREFIX: &str = "#/components/schemas/";
 #[serde(rename_all_fields = "camelCase")]
 pub enum OpenApiSchema {
     AnyOf {
+        #[serde(rename = "description")]
+        _description: Option<String>,
         any_of: Vec<OpenApiSchema>,
     },
     Object {

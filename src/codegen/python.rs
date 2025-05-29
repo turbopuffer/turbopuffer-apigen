@@ -43,7 +43,10 @@ fn topological_sort(
                 visit(schemas, visited, result, schema)?;
                 result.push((name.clone(), schema.clone()))
             }
-            OpenApiSchema::AnyOf { any_of } => {
+            OpenApiSchema::AnyOf {
+                _description: _,
+                any_of,
+            } => {
                 for schema in any_of {
                     visit(schemas, visited, result, schema)?;
                 }
@@ -86,7 +89,10 @@ fn render_schema(
     schema: OpenApiSchema,
 ) -> Result<(), Box<dyn Error>> {
     match schema {
-        OpenApiSchema::AnyOf { any_of } => {
+        OpenApiSchema::AnyOf {
+            _description: _,
+            any_of,
+        } => {
             let expanded = any_of.len() > 3;
             buf.write("Union[");
             if expanded {
