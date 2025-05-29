@@ -19,16 +19,27 @@
 /// A `CodegenBuf` provides a string-based API for generating Rust code. Its
 /// value is in the various function it provides to automatically manage
 /// indentation.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct CodegenBuf {
     inner: String,
     level: usize,
+    indent_size: usize,
+}
+
+impl Default for CodegenBuf {
+    fn default() -> Self {
+        CodegenBuf::with_indent_size(4)
+    }
 }
 
 impl CodegenBuf {
     /// Creates a new code generation buffer.
-    pub fn new() -> CodegenBuf {
-        CodegenBuf::default()
+    pub fn with_indent_size(indent_size: usize) -> CodegenBuf {
+        CodegenBuf {
+            inner: String::new(),
+            level: 0,
+            indent_size,
+        }
     }
 
     /// Consumes the buffer, returning its contents.
@@ -63,7 +74,7 @@ impl CodegenBuf {
     /// the buffer.
     pub fn start_line(&mut self) {
         for _ in 0..self.level {
-            self.write("    ");
+            self.write(&" ".repeat(self.indent_size));
         }
     }
 
@@ -107,5 +118,10 @@ impl CodegenBuf {
         self.level -= 1;
         self.writeln("}");
         ret
+    }
+
+    /// Removes the last character of the buffer.
+    pub fn unwrite_one(&mut self) {
+        self.inner.pop();
     }
 }
