@@ -49,9 +49,8 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             items,
             title: _,
         } => {
-            buf.write("[");
             render_schema(buf, *items)?;
-            buf.write("]")
+            buf.write("[]");
         }
         OpenApiSchema::ArrayTuple {
             additional_items: true,
