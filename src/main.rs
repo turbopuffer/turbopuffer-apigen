@@ -7,6 +7,8 @@ use serde::Deserialize;
 mod codegen;
 mod util;
 
+const TYPE_PREFIXES: &[&str] = &["Aggregate", "Filter", "RankBy"];
+
 #[derive(Parser)]
 struct Args {
     /// The language to generate code for.
@@ -72,7 +74,7 @@ pub fn run(language: Language) -> Result<(), Box<dyn Error>> {
     let mut parsed_schemas = BTreeMap::new();
     for (k, v) in openapi_schemas {
         let k = k.as_str().unwrap();
-        if !k.starts_with("Filter") && !k.starts_with("RankBy") {
+        if !TYPE_PREFIXES.iter().any(|prefix| k.starts_with(prefix)) {
             continue;
         }
         let schema = serde_yaml::from_value(v.clone())?;
