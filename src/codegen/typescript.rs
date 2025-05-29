@@ -95,7 +95,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             None => Err(format!("unsupported reference: {sref}"))?,
             Some(name) => buf.write(name),
         },
-        OpenApiSchema::Any { .. } => buf.write("Any"),
+        OpenApiSchema::Any { .. } => buf.write("any"),
     }
     Ok(())
 }
