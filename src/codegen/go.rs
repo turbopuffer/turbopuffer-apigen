@@ -379,10 +379,9 @@ fn render_any_of_refs(
                 OpenApiSchema::AnyOf {
                     _description: _,
                     any_of,
-                }
-                    if any_of
-                        .iter()
-                        .all(|s| matches!(s, OpenApiSchema::Ref { .. })) =>
+                } if any_of
+                    .iter()
+                    .all(|s| matches!(s, OpenApiSchema::Ref { .. })) =>
                 {
                     render(schemas, buf, fn_name, any_of)?;
                 }
