@@ -228,7 +228,7 @@ fn render_schema(
                     buf.start_line();
                     buf.write(format!("{name} "));
                     render_schema(schemas, buf, None, schema)?;
-                    buf.write(", ");
+                    buf.write(",");
                     buf.end_line();
                 }
             }
