@@ -93,8 +93,11 @@ fn render_schema(
             _description: _,
             any_of,
         } => {
+            let multiple = any_of.len() > 1;
             let expanded = any_of.len() > 3;
-            buf.write("Union[");
+            if multiple {
+                buf.write("Union[");
+            }
             if expanded {
                 buf.indent();
                 buf.end_line();
@@ -117,7 +120,9 @@ fn render_schema(
             if expanded {
                 buf.unindent();
             }
-            buf.write("]");
+            if multiple {
+                buf.write("]");
+            }
         }
         OpenApiSchema::Object { .. } => Err("object schemas unsupported")?,
         OpenApiSchema::ArrayList {
