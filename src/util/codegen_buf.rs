@@ -23,22 +23,22 @@
 pub struct CodegenBuf {
     inner: String,
     level: usize,
-    indent_size: usize,
+    indent: &'static str,
 }
 
 impl Default for CodegenBuf {
     fn default() -> Self {
-        CodegenBuf::with_indent_size(4)
+        CodegenBuf::with_indent("    ")
     }
 }
 
 impl CodegenBuf {
-    /// Creates a new code generation buffer.
-    pub fn with_indent_size(indent_size: usize) -> CodegenBuf {
+    /// Creates a new code generation buffer with the given indent string.
+    pub fn with_indent(indent: &'static str) -> CodegenBuf {
         CodegenBuf {
             inner: String::new(),
             level: 0,
-            indent_size,
+            indent,
         }
     }
 
@@ -74,7 +74,7 @@ impl CodegenBuf {
     /// the buffer.
     pub fn start_line(&mut self) {
         for _ in 0..self.level {
-            self.write(&" ".repeat(self.indent_size));
+            self.write(self.indent);
         }
     }
 
