@@ -85,6 +85,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             _description: _,
             _type: _,
             title: _,
+            x_turbopuffer_width: _,
         } => buf.write("number"),
         OpenApiSchema::Const {
             _description: _,

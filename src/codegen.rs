@@ -86,6 +86,8 @@ pub enum OpenApiSchema {
         _type: MustBe!("number"),
         #[serde(rename = "title")]
         title: Option<String>,
+        #[serde(rename = "x-turbopuffer-width")]
+        x_turbopuffer_width: Option<u32>,
     },
     Const {
         #[serde(rename = "description")]

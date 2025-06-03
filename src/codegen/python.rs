@@ -167,6 +167,7 @@ fn render_schema(
             _description: _,
             _type: _,
             title: _,
+            x_turbopuffer_width: _,
         } => buf.write("float"),
         OpenApiSchema::Const {
             _description: _,

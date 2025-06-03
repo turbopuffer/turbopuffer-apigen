@@ -282,7 +282,12 @@ fn render_schema(
             _description: _,
             _type: _,
             title: _,
-        } => buf.write("float64"),
+            x_turbopuffer_width,
+        } => match x_turbopuffer_width {
+            Some(32) => buf.write("float32"),
+            None | Some(64) => buf.write("float64"),
+            Some(w) => Err(format!("unsupported number width: {w}"))?,
+        },
         OpenApiSchema::Const {
             _description: _,
             sconst: _,
