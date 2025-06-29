@@ -1,12 +1,16 @@
-use std::{collections::BTreeMap, error::Error, mem};
+use std::{collections::BTreeMap, error::Error};
 
 use crate::{
-    codegen::{OpenApiSchema, SCHEMA_REF_PREFIX, strip_schema_ref_prefix},
+    codegen::{
+        OpenApiSchema,
+        shared::{self, TupleField},
+        strip_schema_ref_prefix,
+    },
     util::codegen_buf::CodegenBuf,
 };
 
 pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf, Box<dyn Error>> {
-    extract_any_of_tuples(&mut schemas)?;
+    shared::extract_any_of_tuples(&mut schemas)?;
 
     let mut buf = CodegenBuf::with_indent("\t");
 
@@ -27,76 +31,6 @@ pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf
     }
 
     Ok(buf)
-}
-
-fn extract_any_of_tuples(
-    schemas: &mut BTreeMap<String, OpenApiSchema>,
-) -> Result<(), Box<dyn Error>> {
-    // Extract named types for any tuples inside of a top-level `anyOf`, and
-    // replace the tuples with references to the new types. We only have limited
-    // support for rendering `anyOf`s in Go, and this gives us a chance to fall
-    // into `render_any_of_refs` when we later attempt to render the `anyOf`.
-
-    let mut new_schemas = BTreeMap::new();
-    for (name, schema) in &mut *schemas {
-        if let OpenApiSchema::AnyOf {
-            _description: _,
-            any_of,
-        } = schema
-        {
-            any_of.retain(|item| {
-                !matches!(
-                    item,
-                    OpenApiSchema::ArrayTuple {
-                        x_turbopuffer_variant_drop_on_conflict: true,
-                        ..
-                    }
-                )
-            });
-            for item in any_of {
-                if let OpenApiSchema::ArrayTuple {
-                    prefix_items,
-                    x_turbopuffer_variant_name,
-                    ..
-                } = item
-                {
-                    let mut sconsts = prefix_items.iter().filter_map(|item| match item {
-                        OpenApiSchema::Const { sconst, .. } => Some(sconst),
-                        _ => None,
-                    });
-                    let Some(sconst) = sconsts.next() else {
-                        continue;
-                    };
-                    if sconsts.next().is_some() {
-                        continue;
-                    }
-                    let name = x_turbopuffer_variant_name
-                        .clone()
-                        .unwrap_or_else(|| format!("{name}{sconst}"));
-                    let item = mem::replace(
-                        item,
-                        OpenApiSchema::Ref {
-                            sref: format!("{SCHEMA_REF_PREFIX}{name}"),
-                            title: None,
-                        },
-                    );
-                    if new_schemas.insert(name.clone(), item).is_some() {
-                        Err(format!(
-                            "extraction on array tuples from anyOf failed: duplicate schema name: {name}"
-                        ))?
-                    }
-                }
-            }
-        }
-    }
-    for (name, schema) in new_schemas {
-        if schemas.insert(name.clone(), schema).is_some() {
-            Err(format!(
-                "extraction on array tuples from anyOf failed: duplicate schema name: {name}"
-            ))?
-        }
-    }
-    Ok(())
 }
 
 fn render_schema(
@@ -157,60 +91,16 @@ fn render_schema(
                 Err("tuple-type arrays in unsupported position")?
             };
 
-            enum Field<'a> {
-                Normal {
-                    name: String,
-                    schema: &'a OpenApiSchema,
-                },
-                Const(&'a str),
-                StartIndent,
-                EndIndent,
-            }
-
-            fn build_fields<'a>(
-                out: &mut Vec<Field<'a>>,
-                i: &mut usize,
-                prefix_items: &'a [OpenApiSchema],
-            ) {
-                for item in prefix_items {
-                    match item {
-                        OpenApiSchema::Const { sconst, .. } => {
-                            out.push(Field::Const(sconst));
-                        }
-                        OpenApiSchema::ArrayTuple {
-                            x_turbopuffer_flatten: true,
-                            prefix_items,
-                            ..
-                        } => {
-                            out.push(Field::StartIndent);
-                            build_fields(out, i, prefix_items);
-                            out.push(Field::EndIndent);
-                        }
-                        _ => {
-                            out.push(Field::Normal {
-                                name: match item.title() {
-                                    Some(name) => name.to_string(),
-                                    None => format!("f{i}"),
-                                },
-                                schema: item,
-                            });
-                        }
-                    }
-                    *i += 1;
-                }
-            }
-
-            let mut fields = vec![];
-            build_fields(&mut fields, &mut 0, prefix_items);
+            let fields = shared::build_tuple_fields(prefix_items);
             let fields_no_consts = fields
                 .iter()
-                .filter(|f| !matches!(f, Field::Const { .. }))
+                .filter(|f| !matches!(f, TupleField::Const { .. }))
                 .collect::<Vec<_>>();
 
             // Struct definition.
             buf.write_block("struct", |buf| {
                 for field in &fields_no_consts {
-                    if let Field::Normal { name, schema } = field {
+                    if let TupleField::Normal { name, schema } = field {
                         buf.start_line();
                         buf.write(format!("{name} "));
                         render_schema(schemas, buf, None, schema)?;
@@ -224,7 +114,7 @@ fn render_schema(
             buf.writeln(format!("func New{name}("));
             buf.indent();
             for field in &fields_no_consts {
-                if let Field::Normal { name, schema } = field {
+                if let TupleField::Normal { name, schema } = field {
                     buf.start_line();
                     buf.write(format!("{name} "));
                     render_schema(schemas, buf, None, schema)?;
@@ -236,7 +126,7 @@ fn render_schema(
             buf.write_block(format!(") {name}"), |buf| {
                 buf.write_block(format!("return {name}"), |buf| {
                     for field in &fields_no_consts {
-                        if let Field::Normal { name, .. } = field {
+                        if let TupleField::Normal { name, .. } = field {
                             buf.writeln(format!("{name},"));
                         }
                     }
@@ -252,18 +142,18 @@ fn render_schema(
                     buf.indent();
                     for field in &fields {
                         match field {
-                            Field::Const(sconst) => {
+                            TupleField::Const(sconst) => {
                                 buf.writeln(format!("\"{sconst}\","));
                             }
-                            Field::StartIndent => {
+                            TupleField::StartIndent => {
                                 buf.writeln("[]any{");
                                 buf.indent();
                             }
-                            Field::EndIndent => {
+                            TupleField::EndIndent => {
                                 buf.unindent();
                                 buf.writeln("},");
                             }
-                            Field::Normal { name, schema: _ } => {
+                            TupleField::Normal { name, schema: _ } => {
                                 buf.writeln(format!("v.{name},"));
                             }
                         }

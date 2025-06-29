@@ -8,6 +8,8 @@ pub mod java;
 pub mod python;
 pub mod typescript;
 
+mod shared;
+
 const SCHEMA_REF_PREFIX: &str = "#/components/schemas/";
 
 #[derive(Debug, Deserialize, Clone)]
