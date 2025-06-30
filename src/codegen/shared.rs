@@ -2,8 +2,15 @@ use std::{collections::BTreeMap, error::Error, mem};
 
 use crate::codegen::{OpenApiSchema, SCHEMA_REF_PREFIX};
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ConflictBehavior {
+    Drop,
+    AppendSuffix,
+}
+
 pub fn extract_any_of_tuples(
     schemas: &mut BTreeMap<String, OpenApiSchema>,
+    conflict_behavior: ConflictBehavior,
 ) -> Result<(), Box<dyn Error>> {
     // Extract named types for any tuples inside of a top-level `anyOf`, and
     // replace the tuples with references to the new types. We only have limited
@@ -18,15 +25,17 @@ pub fn extract_any_of_tuples(
             any_of,
         } = schema
         {
-            any_of.retain(|item| {
-                !matches!(
-                    item,
-                    OpenApiSchema::ArrayTuple {
-                        x_turbopuffer_variant_drop_on_conflict: true,
-                        ..
-                    }
-                )
-            });
+            if conflict_behavior == ConflictBehavior::Drop {
+                any_of.retain(|item| {
+                    !matches!(
+                        item,
+                        OpenApiSchema::ArrayTuple {
+                            x_turbopuffer_variant_drop_on_conflict: true,
+                            ..
+                        }
+                    )
+                });
+            }
             for item in any_of {
                 if let OpenApiSchema::ArrayTuple {
                     prefix_items,
@@ -44,14 +53,25 @@ pub fn extract_any_of_tuples(
                     if sconsts.next().is_some() {
                         continue;
                     }
-                    let name = x_turbopuffer_variant_name
-                        .clone()
+                    let ref_title = format!("{name}{sconst}");
+                    let mut name = x_turbopuffer_variant_name
+                        .as_ref()
+                        .map(|variant_name| format!("{name}{variant_name}"))
                         .unwrap_or_else(|| format!("{name}{sconst}"));
+                    if conflict_behavior == ConflictBehavior::AppendSuffix {
+                        let mut new_name = name.clone();
+                        let mut suffix = 2;
+                        while new_schemas.contains_key(&new_name) {
+                            new_name = format!("{name}{suffix}");
+                            suffix += 1;
+                        }
+                        name = new_name;
+                    }
                     let item = mem::replace(
                         item,
                         OpenApiSchema::Ref {
                             sref: format!("{SCHEMA_REF_PREFIX}{name}"),
-                            title: None,
+                            title: Some(ref_title),
                         },
                     );
                     if new_schemas.insert(name.clone(), item).is_some() {

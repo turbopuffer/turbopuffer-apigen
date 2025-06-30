@@ -3,14 +3,14 @@ use std::{collections::BTreeMap, error::Error};
 use crate::{
     codegen::{
         OpenApiSchema,
-        shared::{self, TupleField},
+        shared::{self, ConflictBehavior, TupleField},
         strip_schema_ref_prefix,
     },
     util::codegen_buf::CodegenBuf,
 };
 
 pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf, Box<dyn Error>> {
-    shared::extract_any_of_tuples(&mut schemas)?;
+    shared::extract_any_of_tuples(&mut schemas, ConflictBehavior::AppendSuffix)?;
 
     let mut buf = CodegenBuf::with_indent("\t");
 

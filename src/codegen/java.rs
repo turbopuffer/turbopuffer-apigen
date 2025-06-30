@@ -3,14 +3,14 @@ use std::{collections::BTreeMap, error::Error};
 use crate::{
     codegen::{
         OpenApiSchema,
-        shared::{self, TupleField},
+        shared::{self, ConflictBehavior, TupleField},
         strip_schema_ref_prefix,
     },
     util::codegen_buf::CodegenBuf,
 };
 
 pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf, Box<dyn Error>> {
-    shared::extract_any_of_tuples(&mut schemas)?;
+    shared::extract_any_of_tuples(&mut schemas, ConflictBehavior::AppendSuffix)?;
     let inherits = compute_inherits(&schemas)?;
 
     let mut buf = CodegenBuf::default();
@@ -348,14 +348,15 @@ fn render_any_of_refs(
     buf.write_block(&class_decl, |buf| {
         buf.write_block("companion object", |buf| {
             for item in schema {
-                let OpenApiSchema::Ref { sref, .. } = item else {
+                let OpenApiSchema::Ref { sref, title } = item else {
                     unreachable!("validated by render_schema");
                 };
                 let sref = strip_schema_ref_prefix(sref)?;
+                let subname = title.as_deref().unwrap_or(sref);
                 if let OpenApiSchema::ArrayTuple { prefix_items, .. } = &schemas[sref] {
                     let new_func_name = {
                         let mut s = String::new();
-                        let mut chars = sref.strip_prefix(name).unwrap_or(sref).chars();
+                        let mut chars = subname.strip_prefix(name).unwrap_or(subname).chars();
                         while let Some(c) = chars.next() {
                             s.extend(c.to_lowercase());
                             if !c.is_uppercase() {
