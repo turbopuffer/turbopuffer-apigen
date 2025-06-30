@@ -168,20 +168,11 @@ fn render_schema(
             buf.write(format!("class {name} private constructor("));
 
             // Constructor declaration.
-            let mut level = 0;
             for field in &fields {
-                match field {
-                    TupleField::StartIndent => level += 1,
-                    TupleField::EndIndent => level -= 1,
-                    TupleField::Normal { name, schema } => {
-                        if level > 0 {
-                            buf.write("@JsonIgnore ");
-                        }
-                        buf.write(format!("private val {name}: "));
-                        render_schema(inherits, schemas, buf, name, schema)?;
-                        buf.write(", ");
-                    }
-                    TupleField::Const(_) => (),
+                if let TupleField::Normal { name, schema } = field {
+                    buf.write(format!("{name}: "));
+                    render_schema(inherits, schemas, buf, name, schema)?;
+                    buf.write(", ");
                 }
             }
 
@@ -214,8 +205,26 @@ fn render_schema(
                             buf.end_line();
                         }
                     }
-                    TupleField::Normal { name, .. } => {
-                        if level > 0 {
+                    TupleField::Normal { name, schema } => {
+                        if level == 0 {
+                            match schema {
+                                // Special case to transparently transform `any`
+                                // fields into `JsonValue`s. This only works for
+                                // top-level fields; would need to be extended
+                                // in the future to work for e.g. `List<Any>`.
+                                OpenApiSchema::Any { .. } => {
+                                    buf.writeln(format!(
+                                        "private val {name}: JsonValue = JsonValue.from({name})"
+                                    ));
+                                }
+                                _ => {
+                                    buf.write(format!("private val {name}: "));
+                                    render_schema(inherits, schemas, buf, name, schema)?;
+                                    buf.write(format!(" = {name}"));
+                                    buf.end_line();
+                                }
+                            }
+                        } else {
                             buf.write(format!("JsonValue.from({name}),"));
                         }
                     }
@@ -233,16 +242,17 @@ fn render_schema(
 
             buf.write_block("companion object", |buf| {
                 buf.writeln("@JvmSynthetic");
-                render_array_tuple_constructor(
+                render_array_tuple_constructor(RenderArrayTupleConstructorParams {
                     inherits,
                     schemas,
                     buf,
-                    "internal",
-                    &format!("create"),
-                    &name,
-                    &name,
+                    new_func_vis: "internal",
+                    new_func_name: "create",
+                    new_func_can_use_vararg: false,
+                    class_name: &name,
+                    old_func_name: &name,
                     prefix_items,
-                )
+                })
             })?;
 
             // End class declaration.
@@ -272,7 +282,7 @@ fn render_schema(
             let name = strip_schema_ref_prefix(sref)?;
             buf.write(name)
         }
-        OpenApiSchema::Any { .. } => buf.write("JsonValue"),
+        OpenApiSchema::Any { .. } => buf.write("Any"),
     }
     Ok(())
 }
@@ -357,16 +367,17 @@ fn render_any_of_refs(
                     };
 
                     buf.writeln("@JvmStatic");
-                    render_array_tuple_constructor(
+                    render_array_tuple_constructor(RenderArrayTupleConstructorParams {
                         inherits,
                         schemas,
                         buf,
-                        "public",
-                        &new_func_name,
-                        &sref,
-                        &format!("{sref}.create"),
+                        new_func_vis: "public",
+                        new_func_name: &new_func_name,
+                        new_func_can_use_vararg: true,
+                        class_name: &sref,
+                        old_func_name: &format!("{sref}.create"),
                         prefix_items,
-                    )?;
+                    })?;
                 }
             }
             Ok::<_, Box<dyn Error>>(())
@@ -374,31 +385,65 @@ fn render_any_of_refs(
     })
 }
 
+struct RenderArrayTupleConstructorParams<'a> {
+    inherits: &'a BTreeMap<String, String>,
+    schemas: &'a BTreeMap<String, OpenApiSchema>,
+    buf: &'a mut CodegenBuf,
+    new_func_vis: &'a str,
+    new_func_name: &'a str,
+    new_func_can_use_vararg: bool,
+    class_name: &'a str,
+    old_func_name: &'a str,
+    prefix_items: &'a [OpenApiSchema],
+}
+
 fn render_array_tuple_constructor(
-    inherits: &BTreeMap<String, String>,
-    schemas: &BTreeMap<String, OpenApiSchema>,
-    buf: &mut CodegenBuf,
-    new_func_vis: &str,
-    new_func_name: &str,
-    class_name: &str,
-    old_func_name: &str,
-    prefix_items: &[OpenApiSchema],
+    RenderArrayTupleConstructorParams {
+        inherits,
+        schemas,
+        buf,
+        new_func_vis,
+        new_func_name,
+        new_func_can_use_vararg,
+        class_name,
+        old_func_name,
+        prefix_items,
+    }: RenderArrayTupleConstructorParams,
 ) -> Result<(), Box<dyn Error>> {
     let fields = shared::build_tuple_fields(prefix_items);
 
+    let normal_field_count = fields
+        .iter()
+        .filter(|f| matches!(f, TupleField::Normal { .. }))
+        .count();
+    let use_vararg = normal_field_count == 1 && new_func_can_use_vararg;
+
     buf.start_line();
     buf.write(format!("{new_func_vis} fun {new_func_name}("));
-    for field in &fields {
+    for field in fields.iter() {
         if let TupleField::Normal { name, schema } = field {
-            buf.write(format!("{name}: "));
-            render_schema(inherits, schemas, buf, name, schema)?;
-            buf.write(", ");
+            match schema {
+                OpenApiSchema::ArrayList { items, .. } if use_vararg => {
+                    buf.write(format!("vararg {name}: "));
+                    render_schema(inherits, schemas, buf, name, items)?;
+                }
+                _ => {
+                    buf.write(format!("{name}: "));
+                    render_schema(inherits, schemas, buf, name, schema)?;
+                    buf.write(", ");
+                }
+            }
         }
     }
     buf.write(format!("): {class_name} = {old_func_name}("));
-    for field in &fields {
-        if let TupleField::Normal { name, .. } = field {
-            buf.write(format!("{name},"));
+    for field in fields.iter() {
+        if let TupleField::Normal { name, schema } = field {
+            match schema {
+                OpenApiSchema::ArrayList { .. } if use_vararg => {
+                    buf.write(format!("{name}.asList(),"));
+                }
+                _ => buf.write(format!("{name},")),
+            }
         }
     }
     buf.write(")");
