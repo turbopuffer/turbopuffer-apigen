@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf, Box<dyn Error>> {
-    shared::extract_any_of_tuples(&mut schemas, ConflictBehavior::AppendSuffix)?;
+    shared::extract_any_of_tuples(&mut schemas, ConflictBehavior::Drop)?;
 
     let mut buf = CodegenBuf::with_indent("\t");
 
