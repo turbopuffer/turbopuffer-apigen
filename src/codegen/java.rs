@@ -110,7 +110,7 @@ fn rewrite_single_field_objects_to_tuples(
                     x_turbopuffer_flatten: false,
                     title: None,
                 };
-                let overrides = BTreeMap::from([(prop_name, prop_name_munged)]);
+                let overrides = BTreeMap::from([(prop_name_munged, prop_name)]);
                 names.insert(name.clone(), overrides);
             }
             _ => (),
@@ -268,7 +268,8 @@ fn render_schema(
                             let json_name = ctx
                                 .objects_as_tuples
                                 .get(name)
-                                .and_then(|overrides| overrides.get(prop_name));
+                                .and_then(|overrides| overrides.get(prop_name))
+                                .map(|json_name| json_name.replace("$", "\\$"));
                             if let Some(json_name) = json_name {
                                 buf.write(format!("@JsonProperty(\"{json_name}\") "));
                             }
