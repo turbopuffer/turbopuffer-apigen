@@ -142,3 +142,32 @@ pub fn build_tuple_fields(prefix_items: &[OpenApiSchema]) -> Vec<TupleField> {
     build_tuple_fields_inner(&mut fields, &mut 0, prefix_items);
     fields
 }
+
+pub fn lower_camel_case(input: &str) -> String {
+    let mut s = String::new();
+    let mut chars = input.chars();
+    while let Some(c) = chars.next() {
+        s.extend(c.to_lowercase());
+        if !c.is_uppercase() {
+            break;
+        }
+    }
+    s.extend(chars);
+    s
+}
+
+pub fn snake_to_camel_case(input: &str) -> String {
+    let mut s = String::new();
+    let input = input.replace("$", "");
+    let mut chars = input.chars();
+    while let Some(c) = chars.next() {
+        if c == '_' {
+            if let Some(c) = chars.next() {
+                s.extend(c.to_uppercase());
+            }
+        } else {
+            s.push(c);
+        }
+    }
+    s
+}

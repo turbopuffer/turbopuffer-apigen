@@ -124,7 +124,26 @@ fn render_schema(
                 buf.write("]");
             }
         }
-        OpenApiSchema::Object { .. } => Err("object schemas unsupported")?,
+        OpenApiSchema::Object {
+            _description: _,
+            _type: _,
+            properties,
+            required,
+            title: _,
+        } => {
+            if !properties.keys().all(|name| required.contains(name)) {
+                Err("object schemas with non-required properties not supported")?
+            };
+            buf.write(format!("TypedDict(\"{name}\", {{"));
+            for (i, (name, schema)) in properties.into_iter().enumerate() {
+                if i > 0 {
+                    buf.write(", ");
+                }
+                buf.write(format!("\"{name}\": "));
+                render_schema(buf, &name, schema)?;
+            }
+            buf.write("})")
+        }
         OpenApiSchema::ArrayList {
             _description: _,
             _type: _,

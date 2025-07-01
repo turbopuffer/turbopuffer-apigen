@@ -28,6 +28,8 @@ pub enum OpenApiSchema {
         #[serde(rename = "type")]
         _type: MustBe!("object"),
         properties: BTreeMap<String, OpenApiSchema>,
+        #[serde(default)]
+        required: Vec<String>,
         #[serde(rename = "title")]
         title: Option<String>,
     },
@@ -127,6 +129,20 @@ impl OpenApiSchema {
             | OpenApiSchema::ArrayTuple { title, .. }
             | OpenApiSchema::Object { title, .. }
             | OpenApiSchema::ArrayList { title, .. } => title.as_deref(),
+        }
+    }
+
+    pub fn title_mut(&mut self) -> Option<&mut Option<String>> {
+        match self {
+            OpenApiSchema::AnyOf { .. } => None,
+            OpenApiSchema::String { title, .. }
+            | OpenApiSchema::Number { title, .. }
+            | OpenApiSchema::Const { title, .. }
+            | OpenApiSchema::Ref { title, .. }
+            | OpenApiSchema::Any { title, .. }
+            | OpenApiSchema::ArrayTuple { title, .. }
+            | OpenApiSchema::Object { title, .. }
+            | OpenApiSchema::ArrayList { title, .. } => Some(title),
         }
     }
 }

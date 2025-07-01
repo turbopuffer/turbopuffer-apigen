@@ -7,7 +7,7 @@ use serde::Deserialize;
 mod codegen;
 mod util;
 
-const TYPE_PREFIXES: &[&str] = &["Aggregate", "Filter", "RankBy"];
+const TYPE_PREFIXES: &[&str] = &["Aggregate", "Expr", "Filter", "RankBy"];
 
 #[derive(Parser)]
 struct Args {

@@ -58,7 +58,62 @@ fn render_schema(
                 Err("unsupported anyOf")?
             }
         }
-        OpenApiSchema::Object { .. } => Err("object schemas unsupported")?,
+        OpenApiSchema::Object {
+            _description: _,
+            _type: _,
+            properties,
+            title: _,
+            required,
+        } => {
+            let Some(name) = name else {
+                Err("object schema in unsupported position")?
+            };
+            if properties.len() != 1 || required.len() != 1 {
+                Err("object schemas only supported with a required property")?
+            };
+            let (prop_name, prop_schema) = properties.into_iter().next().unwrap();
+            if !required.contains(prop_name) {
+                Err("object schemas only supported with a single required property")?
+            };
+
+            let prop_name_munged = prop_name.replace("$", "");
+            let prop_name_munged = shared::snake_to_camel_case(&prop_name_munged);
+
+            // Struct definition.
+            buf.write_block("struct", |buf| {
+                buf.start_line();
+                buf.write(format!("{prop_name_munged} "));
+                render_schema(schemas, buf, None, prop_schema)?;
+                buf.end_line();
+                Ok::<_, Box<dyn Error>>(())
+            })?;
+
+            // Constructor function.
+            buf.writeln(format!("func New{name}("));
+            buf.indent();
+            buf.start_line();
+            buf.write(format!("{prop_name_munged} "));
+            render_schema(schemas, buf, None, prop_schema)?;
+            buf.write(",");
+            buf.end_line();
+            buf.unindent();
+            buf.write_block(format!(") {name}"), |buf| {
+                buf.write_block(format!("return {name}"), |buf| {
+                    buf.writeln(format!("{prop_name_munged}: {prop_name_munged},"));
+                })
+            });
+
+            buf.write_block(
+                format!("func (v {name}) MarshalJSON() ([]byte, error)"),
+                |buf| {
+                    buf.writeln("return shimjson.Marshal(map[string]any{");
+                    buf.indent();
+                    buf.writeln(format!("\"{prop_name}\": v.{prop_name_munged},"));
+                    buf.unindent();
+                    buf.writeln("})");
+                },
+            );
+        }
         OpenApiSchema::ArrayList {
             _description: _,
             _type: _,
@@ -100,7 +155,7 @@ fn render_schema(
             // Struct definition.
             buf.write_block("struct", |buf| {
                 for field in &fields_no_consts {
-                    if let TupleField::Normal { name, schema } = field {
+                    if let TupleField::Normal { name, schema, .. } = field {
                         buf.start_line();
                         buf.write(format!("{name} "));
                         render_schema(schemas, buf, None, schema)?;
@@ -114,7 +169,7 @@ fn render_schema(
             buf.writeln(format!("func New{name}("));
             buf.indent();
             for field in &fields_no_consts {
-                if let TupleField::Normal { name, schema } = field {
+                if let TupleField::Normal { name, schema, .. } = field {
                     buf.start_line();
                     buf.write(format!("{name} "));
                     render_schema(schemas, buf, None, schema)?;

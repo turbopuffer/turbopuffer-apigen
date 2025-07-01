@@ -11,7 +11,11 @@ use crate::{
 
 pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf, Box<dyn Error>> {
     shared::extract_any_of_tuples(&mut schemas, ConflictBehavior::AppendSuffix)?;
-    let inherits = compute_inherits(&schemas)?;
+    let ctx = RenderCtx {
+        inherits: compute_inherits(&schemas)?,
+        objects_as_tuples: rewrite_single_field_objects_to_tuples(&mut schemas)?,
+        schemas,
+    };
 
     let mut buf = CodegenBuf::default();
 
@@ -28,14 +32,22 @@ pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf
     buf.writeln("import com.turbopuffer.core.JsonValue");
     buf.writeln("");
 
-    for (i, (name, schema)) in schemas.iter().enumerate() {
+    for (i, (name, schema)) in ctx.schemas.iter().enumerate() {
         if i > 0 {
             buf.writeln("");
         }
-        render_schema(&inherits, &schemas, &mut buf, &name, &schema)?;
+        render_schema(&ctx, &mut buf, &name, &schema)?;
     }
 
     Ok(buf)
+}
+
+struct RenderCtx {
+    inherits: BTreeMap<String, String>,
+    /// Names of objects that have been munged into tuples, and any JSON name
+    /// overrides for the fields.
+    objects_as_tuples: BTreeMap<String, BTreeMap<String, String>>,
+    schemas: BTreeMap<String, OpenApiSchema>,
 }
 
 fn compute_inherits(
@@ -66,9 +78,49 @@ fn compute_inherits(
     Ok(result)
 }
 
+fn rewrite_single_field_objects_to_tuples(
+    schemas: &mut BTreeMap<String, OpenApiSchema>,
+) -> Result<BTreeMap<String, BTreeMap<String, String>>, Box<dyn Error>> {
+    let mut names = BTreeMap::new();
+    for (name, schema) in schemas {
+        match schema {
+            OpenApiSchema::Object {
+                _description: _,
+                _type: _,
+                properties,
+                required,
+                title: _,
+            } if properties.len() == 1 && required.len() == 1 => {
+                let (prop_name, prop_schema) = properties.into_iter().next().unwrap();
+                if !required.contains(prop_name) {
+                    continue;
+                }
+                let prop_name = prop_name.clone();
+                let prop_name_munged = shared::snake_to_camel_case(&prop_name);
+                if let Some(title) = prop_schema.title_mut() {
+                    *title = Some(prop_name_munged.clone());
+                }
+                *schema = OpenApiSchema::ArrayTuple {
+                    prefix_items: vec![prop_schema.clone()],
+                    _description: None,
+                    _type: Default::default(),
+                    additional_items: false,
+                    x_turbopuffer_variant_name: None,
+                    x_turbopuffer_variant_drop_on_conflict: false,
+                    x_turbopuffer_flatten: false,
+                    title: None,
+                };
+                let overrides = BTreeMap::from([(prop_name, prop_name_munged)]);
+                names.insert(name.clone(), overrides);
+            }
+            _ => (),
+        }
+    }
+    Ok(names)
+}
+
 fn render_schema(
-    inherits: &BTreeMap<String, String>,
-    schemas: &BTreeMap<String, OpenApiSchema>,
+    ctx: &RenderCtx,
     buf: &mut CodegenBuf,
     name: &str,
     schema: &OpenApiSchema,
@@ -87,7 +139,7 @@ fn render_schema(
                 .iter()
                 .all(|s| matches!(s, OpenApiSchema::Ref { .. }))
             {
-                render_any_of_refs(inherits, schemas, buf, name, any_of)?;
+                render_any_of_refs(ctx, buf, name, any_of)?;
             } else {
                 Err("unsupported anyOf")?
             }
@@ -100,7 +152,7 @@ fn render_schema(
             title: _,
         } => {
             buf.write("List<");
-            render_schema(inherits, schemas, buf, name, &*items)?;
+            render_schema(ctx, buf, name, &*items)?;
             buf.write(">");
         }
         OpenApiSchema::ArrayTuple {
@@ -128,7 +180,9 @@ fn render_schema(
             buf.writeln("@JsonAutoDetect(fieldVisibility = Visibility.ANY)");
 
             // Emit JSON property order.
-            buf.writeln("@JsonFormat(shape = JsonFormat.Shape.ARRAY)");
+            if !ctx.objects_as_tuples.contains_key(name) {
+                buf.writeln("@JsonFormat(shape = JsonFormat.Shape.ARRAY)");
+            }
             buf.write("@JsonPropertyOrder(");
             let mut f_idx = 0;
             let mut level = 0;
@@ -171,14 +225,14 @@ fn render_schema(
             for field in &fields {
                 if let TupleField::Normal { name, schema } = field {
                     buf.write(format!("{name}: "));
-                    render_schema(inherits, schemas, buf, name, schema)?;
+                    render_schema(ctx, buf, name, schema)?;
                     buf.write(", ");
                 }
             }
 
             // Inherits declaration.
             buf.write(")");
-            if let Some(inherits) = inherits.get(name) {
+            if let Some(inherits) = ctx.inherits.get(name) {
                 buf.write(format!(" : {inherits}()"));
             }
             buf.write(" {");
@@ -205,27 +259,38 @@ fn render_schema(
                             buf.end_line();
                         }
                     }
-                    TupleField::Normal { name, schema } => {
+                    TupleField::Normal {
+                        name: prop_name,
+                        schema,
+                    } => {
                         if level == 0 {
+                            buf.start_line();
+                            let json_name = ctx
+                                .objects_as_tuples
+                                .get(name)
+                                .and_then(|overrides| overrides.get(prop_name));
+                            if let Some(json_name) = json_name {
+                                buf.write(format!("@JsonProperty(\"{json_name}\") "));
+                            }
                             match schema {
                                 // Special case to transparently transform `any`
                                 // fields into `JsonValue`s. This only works for
                                 // top-level fields; would need to be extended
                                 // in the future to work for e.g. `List<Any>`.
                                 OpenApiSchema::Any { .. } => {
-                                    buf.writeln(format!(
-                                        "private val {name}: JsonValue = JsonValue.from({name})"
+                                    buf.write(format!(
+                                        "private val {prop_name}: JsonValue = JsonValue.from({prop_name})"
                                     ));
                                 }
                                 _ => {
-                                    buf.write(format!("private val {name}: "));
-                                    render_schema(inherits, schemas, buf, name, schema)?;
-                                    buf.write(format!(" = {name}"));
-                                    buf.end_line();
+                                    buf.write(format!("private val {prop_name}: "));
+                                    render_schema(ctx, buf, prop_name, schema)?;
+                                    buf.write(format!(" = {prop_name}"));
                                 }
                             }
+                            buf.end_line();
                         } else {
-                            buf.write(format!("JsonValue.from({name}),"));
+                            buf.write(format!("JsonValue.from({prop_name}),"));
                         }
                     }
                     TupleField::Const(sconst) => {
@@ -243,8 +308,7 @@ fn render_schema(
             buf.write_block("companion object", |buf| {
                 buf.writeln("@JvmSynthetic");
                 render_array_tuple_constructor(RenderArrayTupleConstructorParams {
-                    inherits,
-                    schemas,
+                    ctx,
                     buf,
                     new_func_vis: "internal",
                     new_func_name: "create",
@@ -328,8 +392,7 @@ fn render_any_of_const_enum(
 }
 
 fn render_any_of_refs(
-    inherits: &BTreeMap<String, String>,
-    schemas: &BTreeMap<String, OpenApiSchema>,
+    ctx: &RenderCtx,
     buf: &mut CodegenBuf,
     name: &str,
     schema: &[OpenApiSchema],
@@ -340,7 +403,7 @@ fn render_any_of_refs(
 
     // Class declaration.
     let mut class_decl = format!("sealed class {name}()");
-    if let Some(inherits) = inherits.get(name) {
+    if let Some(inherits) = ctx.inherits.get(name) {
         class_decl.push_str(&format!(" : {inherits}()"));
     }
 
@@ -353,24 +416,16 @@ fn render_any_of_refs(
                 };
                 let sref = strip_schema_ref_prefix(sref)?;
                 let subname = title.as_deref().unwrap_or(sref);
-                if let OpenApiSchema::ArrayTuple { prefix_items, .. } = &schemas[sref] {
+                if let OpenApiSchema::ArrayTuple { prefix_items, .. } = &ctx.schemas[sref] {
                     let new_func_name = {
-                        let mut s = String::new();
-                        let mut chars = subname.strip_prefix(name).unwrap_or(subname).chars();
-                        while let Some(c) = chars.next() {
-                            s.extend(c.to_lowercase());
-                            if !c.is_uppercase() {
-                                break;
-                            }
-                        }
-                        s.extend(chars);
+                        let s = subname.strip_prefix(name).unwrap_or(subname);
+                        let s = shared::lower_camel_case(&s);
                         munge_func_name(&s)
                     };
 
                     buf.writeln("@JvmStatic");
                     render_array_tuple_constructor(RenderArrayTupleConstructorParams {
-                        inherits,
-                        schemas,
+                        ctx,
                         buf,
                         new_func_vis: "public",
                         new_func_name: &new_func_name,
@@ -387,8 +442,7 @@ fn render_any_of_refs(
 }
 
 struct RenderArrayTupleConstructorParams<'a> {
-    inherits: &'a BTreeMap<String, String>,
-    schemas: &'a BTreeMap<String, OpenApiSchema>,
+    ctx: &'a RenderCtx,
     buf: &'a mut CodegenBuf,
     new_func_vis: &'a str,
     new_func_name: &'a str,
@@ -400,8 +454,7 @@ struct RenderArrayTupleConstructorParams<'a> {
 
 fn render_array_tuple_constructor(
     RenderArrayTupleConstructorParams {
-        inherits,
-        schemas,
+        ctx,
         buf,
         new_func_vis,
         new_func_name,
@@ -426,11 +479,11 @@ fn render_array_tuple_constructor(
             match schema {
                 OpenApiSchema::ArrayList { items, .. } if use_vararg => {
                     buf.write(format!("vararg {name}: "));
-                    render_schema(inherits, schemas, buf, name, items)?;
+                    render_schema(ctx, buf, name, items)?;
                 }
                 _ => {
                     buf.write(format!("{name}: "));
-                    render_schema(inherits, schemas, buf, name, schema)?;
+                    render_schema(ctx, buf, name, schema)?;
                     buf.write(", ");
                 }
             }
