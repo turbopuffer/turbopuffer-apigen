@@ -53,7 +53,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             if !properties.keys().all(|name| required.contains(name)) {
                 Err("object schemas with non-required properties not supported")?
             };
-            buf.write("{");
+            buf.write("{ ");
             for (i, (name, schema)) in properties.into_iter().enumerate() {
                 if i > 0 {
                     buf.write(", ");
@@ -61,7 +61,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
                 buf.write(format!("{name}: "));
                 render_schema(buf, schema)?;
             }
-            buf.write("}")
+            buf.write(" }")
         }
         OpenApiSchema::ArrayList {
             _description: _,
