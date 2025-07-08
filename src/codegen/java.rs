@@ -29,7 +29,11 @@ pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf
     buf.writeln("import com.fasterxml.jackson.annotation.JsonIgnore");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonProperty");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonPropertyOrder");
+    buf.writeln("import com.fasterxml.jackson.databind.json.JsonMapper");
+    buf.writeln("import com.turbopuffer.core.jsonMapper");
     buf.writeln("import com.turbopuffer.core.JsonValue");
+    buf.writeln("");
+    buf.writeln("val jsonMapper: JsonMapper = jsonMapper()");
     buf.writeln("");
 
     for (i, (name, schema)) in ctx.schemas.iter().enumerate() {
@@ -304,6 +308,9 @@ fn render_schema(
                     }
                 }
             }
+            buf.write_block("override fun toString(): String", |buf| {
+                buf.writeln("return jsonMapper.writeValueAsString(this)");
+            });
             buf.unindent();
 
             buf.write_block("companion object", |buf| {
