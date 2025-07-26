@@ -150,7 +150,7 @@ fn render_schema(
         }
         OpenApiSchema::Object { .. } => Err("object schemas unsupported")?,
         OpenApiSchema::ArrayList {
-            _description: _,
+            description: _,
             _type: _,
             items,
             title: _,

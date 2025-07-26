@@ -64,7 +64,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             buf.write(" }")
         }
         OpenApiSchema::ArrayList {
-            _description: _,
+            description: _,
             _type: _,
             items,
             title: _,

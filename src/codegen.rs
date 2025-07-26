@@ -34,8 +34,7 @@ pub enum OpenApiSchema {
         title: Option<String>,
     },
     ArrayList {
-        #[serde(rename = "description")]
-        _description: Option<String>,
+        description: Option<String>,
         #[serde(rename = "type")]
         _type: MustBe!("array"),
         items: Box<OpenApiSchema>,

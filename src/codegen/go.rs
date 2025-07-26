@@ -33,6 +33,73 @@ pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf
     Ok(buf)
 }
 
+/// For any arrays with item type any (`[]any`), replace the `title` field of
+/// with a generic type name. Using generic arrays (`[]T`) is more ergonomic
+/// than using `[]any`, because the former does not require manually casting
+/// every type in the array to `[]any`.
+///
+/// Returns the generic syntax to inject.
+fn assign_generics(schemas: &mut [OpenApiSchema]) -> (String, String) {
+    // Add more letters if necessary. But the odds of actually needing more than
+    // 7 generic parameters are miniscule.
+    const GENERICS: &[&str] = &["T", "U", "V", "W", "X", "Y", "Z"];
+
+    fn assign(index: &mut usize, schema: &mut OpenApiSchema) {
+        match schema {
+            OpenApiSchema::AnyOf { any_of, .. } => {
+                for item in any_of {
+                    assign(index, item);
+                }
+            }
+            OpenApiSchema::Object { properties, .. } => {
+                for (_, prop_schema) in properties {
+                    assign(index, prop_schema);
+                }
+            }
+            OpenApiSchema::ArrayList {
+                items, description, ..
+            } => {
+                if let OpenApiSchema::Any { .. } = &**items {
+                    // NOTE(benesch): it's a bit of a hack to jam this into the
+                    // `description` field, but it's very convenient.
+                    *description = Some(format!("#GEN:{}", GENERICS[*index]));
+                    *index += 1;
+                } else {
+                    assign(index, items);
+                }
+            }
+            OpenApiSchema::ArrayTuple { prefix_items, .. } => {
+                for item in prefix_items {
+                    assign(index, item);
+                }
+            }
+            OpenApiSchema::String { .. }
+            | OpenApiSchema::Number { .. }
+            | OpenApiSchema::Const { .. }
+            | OpenApiSchema::Ref { .. }
+            | OpenApiSchema::Any { .. } => {}
+        }
+    }
+
+    let mut index = 0;
+    for schema in schemas {
+        assign(&mut index, schema);
+    }
+    if index > 0 {
+        let generic_decl = (0..index)
+            .map(|i| format!("{} any", GENERICS[i]))
+            .collect::<Vec<_>>();
+        let generic_inst = (0..index)
+            .map(|i| format!("{}", GENERICS[i]))
+            .collect::<Vec<_>>();
+        let generic_decl = format!("[{}]", generic_decl.join(", "));
+        let generic_inst = format!("[{}]", generic_inst.join(", "));
+        (generic_decl, generic_inst)
+    } else {
+        (String::new(), String::new())
+    }
+}
+
 fn render_schema(
     schemas: &BTreeMap<String, OpenApiSchema>,
     buf: &mut CodegenBuf,
@@ -115,13 +182,17 @@ fn render_schema(
             );
         }
         OpenApiSchema::ArrayList {
-            _description: _,
+            description,
             _type: _,
             items,
             title: _,
         } => {
             buf.write("[]");
-            render_schema(schemas, buf, None, &*items)?;
+            if let Some(generic) = description.as_ref().and_then(|d| d.strip_prefix("#GEN:")) {
+                buf.write(generic);
+            } else {
+                render_schema(schemas, buf, None, &*items)?;
+            }
         }
         OpenApiSchema::ArrayTuple {
             additional_items: true,
@@ -146,14 +217,17 @@ fn render_schema(
                 Err("tuple-type arrays in unsupported position")?
             };
 
-            let fields = shared::build_tuple_fields(prefix_items);
+            let mut prefix_items = prefix_items.clone();
+            let (generic_decl, generic_inst) = assign_generics(&mut prefix_items);
+
+            let fields = shared::build_tuple_fields(&prefix_items);
             let fields_no_consts = fields
                 .iter()
                 .filter(|f| !matches!(f, TupleField::Const { .. }))
                 .collect::<Vec<_>>();
 
             // Struct definition.
-            buf.write_block("struct", |buf| {
+            buf.write_block(format!("{generic_decl} struct"), |buf| {
                 for field in &fields_no_consts {
                     if let TupleField::Normal { name, schema, .. } = field {
                         buf.start_line();
@@ -166,7 +240,7 @@ fn render_schema(
             })?;
 
             // Constructor function.
-            buf.writeln(format!("func New{name}("));
+            buf.writeln(format!("func New{name}{generic_decl}("));
             buf.indent();
             for field in &fields_no_consts {
                 if let TupleField::Normal { name, schema, .. } = field {
@@ -178,8 +252,8 @@ fn render_schema(
                 }
             }
             buf.unindent();
-            buf.write_block(format!(") {name}"), |buf| {
-                buf.write_block(format!("return {name}"), |buf| {
+            buf.write_block(format!(") {name}{generic_inst}"), |buf| {
+                buf.write_block(format!("return {name}{generic_inst}"), |buf| {
                     for field in &fields_no_consts {
                         if let TupleField::Normal { name, .. } = field {
                             buf.writeln(format!("{name},"));
@@ -191,7 +265,7 @@ fn render_schema(
             })?;
 
             buf.write_block(
-                format!("func (v {name}) MarshalJSON() ([]byte, error)"),
+                format!("func (v {name}{generic_inst}) MarshalJSON() ([]byte, error)"),
                 |buf| {
                     buf.writeln("return shimjson.Marshal([]any{");
                     buf.indent();
@@ -335,7 +409,10 @@ fn render_any_of_refs(
                 {
                     render(schemas, buf, fn_name, any_of)?;
                 }
-                _ => buf.writeln(format!("func (v {sref}) {fn_name}() {{}}")),
+                schema => {
+                    let (_generic_decl, generic_inst) = assign_generics(&mut [schema.clone()]);
+                    buf.writeln(format!("func (v {sref}{generic_inst}) {fn_name}() {{}}"))
+                }
             }
         }
         Ok(())
