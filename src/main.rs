@@ -56,14 +56,18 @@ pub fn run(language: Language) -> Result<(), Box<dyn Error>> {
     let stats_content = fs::read_to_string(".stats.yml")?;
     let stainless_stats: StainlessStats = serde_yaml::from_str(&stats_content)?;
 
-    log!(
-        "discovered OpenAPI spec url: {}",
-        stainless_stats.openapi_spec_url
-    );
-
-    log!("downloading OpenAPI spec");
-    let resp = reqwest::blocking::get(&stainless_stats.openapi_spec_url)?;
-    let openapi_yaml = resp.text()?;
+    let openapi_yaml = if let Ok(spec_file_path) = std::env::var("SPEC_FILE_PATH") {
+        log!("reading OpenAPI spec from local file: {}", spec_file_path);
+        fs::read_to_string(&spec_file_path)?
+    } else {
+        log!(
+            "discovered OpenAPI spec url: {}",
+            stainless_stats.openapi_spec_url
+        );
+        log!("downloading OpenAPI spec");
+        let resp = reqwest::blocking::get(&stainless_stats.openapi_spec_url)?;
+        resp.text()?
+    };
 
     log!("parsing OpenAPI spec");
     let mut openapi: serde_yaml::Value = serde_yaml::from_str(&openapi_yaml)?;
