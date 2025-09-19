@@ -137,7 +137,7 @@ fn build_tuple_fields_inner<'a>(
     }
 }
 
-pub fn build_tuple_fields(prefix_items: &[OpenApiSchema]) -> Vec<TupleField> {
+pub fn build_tuple_fields(prefix_items: &'_ [OpenApiSchema]) -> Vec<TupleField<'_>> {
     let mut fields = vec![];
     build_tuple_fields_inner(&mut fields, &mut 0, prefix_items);
     fields

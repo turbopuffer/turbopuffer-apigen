@@ -106,6 +106,11 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             title: _,
             x_turbopuffer_width: _,
         } => buf.write("number"),
+        OpenApiSchema::Boolean {
+            _description: _,
+            _type: _,
+            title: _,
+        } => buf.write("boolean"),
         OpenApiSchema::Const {
             _description: _,
             sconst,
