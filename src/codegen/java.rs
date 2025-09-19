@@ -335,6 +335,11 @@ fn render_schema(
             _type: _,
             title: _,
         } => buf.write("String"),
+        OpenApiSchema::Boolean {
+            _description: _,
+            _type: _,
+            title: _,
+        } => buf.write("Boolean"),
         OpenApiSchema::Number {
             _description: _,
             _type: _,

@@ -92,6 +92,14 @@ pub enum OpenApiSchema {
         #[serde(rename = "x-turbopuffer-width")]
         x_turbopuffer_width: Option<u32>,
     },
+    Boolean {
+        #[serde(rename = "description")]
+        _description: Option<String>,
+        #[serde(rename = "type")]
+        _type: MustBe!("boolean"),
+        #[serde(rename = "title")]
+        title: Option<String>,
+    },
     Const {
         #[serde(rename = "description")]
         _description: Option<String>,
@@ -121,6 +129,7 @@ impl OpenApiSchema {
         match self {
             OpenApiSchema::AnyOf { .. } => None,
             OpenApiSchema::String { title, .. }
+            | OpenApiSchema::Boolean { title, .. }
             | OpenApiSchema::Number { title, .. }
             | OpenApiSchema::Const { title, .. }
             | OpenApiSchema::Ref { title, .. }
@@ -135,6 +144,7 @@ impl OpenApiSchema {
         match self {
             OpenApiSchema::AnyOf { .. } => None,
             OpenApiSchema::String { title, .. }
+            | OpenApiSchema::Boolean { title, .. }
             | OpenApiSchema::Number { title, .. }
             | OpenApiSchema::Const { title, .. }
             | OpenApiSchema::Ref { title, .. }
