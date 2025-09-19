@@ -13,8 +13,8 @@ pub fn render(schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf, Bo
     buf.writeln("");
     buf.writeln("from typing import Any, Tuple, Union, Literal, Sequence, TypedDict");
     buf.writeln("");
-    buf.writeln("from bm25_clause_params import Bm25ClauseParams");
-    buf.writeln("from contains_all_tokens_filter_params import ContainsAllTokensFilterParams");
+    buf.writeln("from .bm25_clause_params import Bm25ClauseParams");
+    buf.writeln("from .contains_all_tokens_filter_params import ContainsAllTokensFilterParams");
     buf.writeln("");
     for (name, schema) in schemas {
         buf.start_line();
