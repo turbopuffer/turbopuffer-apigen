@@ -100,8 +100,6 @@ pub enum TupleField<'a> {
         schema: &'a OpenApiSchema,
     },
     Const(&'a str),
-    StartIndent,
-    EndIndent,
 }
 
 fn build_tuple_fields_inner<'a>(
@@ -113,15 +111,6 @@ fn build_tuple_fields_inner<'a>(
         match item {
             OpenApiSchema::Const { sconst, .. } => {
                 out.push(TupleField::Const(sconst));
-            }
-            OpenApiSchema::ArrayTuple {
-                x_turbopuffer_flatten: true,
-                prefix_items,
-                ..
-            } => {
-                out.push(TupleField::StartIndent);
-                build_tuple_fields_inner(out, i, prefix_items);
-                out.push(TupleField::EndIndent);
             }
             _ => {
                 out.push(TupleField::Normal {
@@ -137,7 +126,7 @@ fn build_tuple_fields_inner<'a>(
     }
 }
 
-pub fn build_tuple_fields(prefix_items: &'_ [OpenApiSchema]) -> Vec<TupleField<'_>> {
+pub fn build_tuple_fields(prefix_items: &[OpenApiSchema]) -> Vec<TupleField<'_>> {
     let mut fields = vec![];
     build_tuple_fields_inner(&mut fields, &mut 0, prefix_items);
     fields

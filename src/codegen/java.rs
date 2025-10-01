@@ -111,7 +111,6 @@ fn rewrite_single_field_objects_to_tuples(
                     additional_items: false,
                     x_turbopuffer_variant_name: None,
                     x_turbopuffer_variant_drop_on_conflict: false,
-                    x_turbopuffer_flatten: false,
                     title: None,
                 };
                 let overrides = BTreeMap::from([(prop_name_munged, prop_name)]);
@@ -170,7 +169,6 @@ fn render_schema(
             prefix_items,
             x_turbopuffer_variant_name: _,
             x_turbopuffer_variant_drop_on_conflict: _,
-            x_turbopuffer_flatten: _,
             title: _,
         } => {
             // Since Java doesn't natively support tuples, we convert each tuple
@@ -189,25 +187,7 @@ fn render_schema(
             }
             buf.write("@JsonPropertyOrder(");
             let mut f_idx = 0;
-            let mut level = 0;
             for field in &fields {
-                match field {
-                    TupleField::StartIndent => {
-                        level += 1;
-                        if level > 1 {
-                            continue;
-                        }
-                    }
-                    TupleField::EndIndent => {
-                        level -= 1;
-                        continue;
-                    }
-                    TupleField::Normal { .. } | TupleField::Const(_) => {
-                        if level > 0 {
-                            continue;
-                        }
-                    }
-                }
                 match field {
                     TupleField::Normal { name, .. } => {
                         buf.write(format!("\"{name}\","));
@@ -245,66 +225,42 @@ fn render_schema(
             // Class body.
             buf.indent();
             let mut f_idx = 0;
-            let mut level = 0;
             for field in &fields {
                 match field {
-                    TupleField::StartIndent => {
-                        level += 1;
-                        if level == 1 {
-                            buf.start_line();
-                            buf.write(format!("private val f{f_idx}: List<JsonValue> = listOf("));
-                            f_idx += 1;
-                        }
-                    }
-                    TupleField::EndIndent => {
-                        level -= 1;
-                        buf.write(")");
-                        if level == 0 {
-                            buf.end_line();
-                        }
-                    }
                     TupleField::Normal {
                         name: prop_name,
                         schema,
                     } => {
-                        if level == 0 {
-                            buf.start_line();
-                            let json_name = ctx
-                                .objects_as_tuples
-                                .get(name)
-                                .and_then(|overrides| overrides.get(prop_name))
-                                .map(|json_name| json_name.replace("$", "\\$"));
-                            if let Some(json_name) = json_name {
-                                buf.write(format!("@JsonProperty(\"{json_name}\") "));
-                            }
-                            match schema {
-                                // Special case to transparently transform `any`
-                                // fields into `JsonValue`s. This only works for
-                                // top-level fields; would need to be extended
-                                // in the future to work for e.g. `List<Any>`.
-                                OpenApiSchema::Any { .. } => {
-                                    buf.write(format!(
+                        buf.start_line();
+                        let json_name = ctx
+                            .objects_as_tuples
+                            .get(name)
+                            .and_then(|overrides| overrides.get(prop_name))
+                            .map(|json_name| json_name.replace("$", "\\$"));
+                        if let Some(json_name) = json_name {
+                            buf.write(format!("@JsonProperty(\"{json_name}\") "));
+                        }
+                        match schema {
+                            // Special case to transparently transform `any`
+                            // fields into `JsonValue`s. This only works for
+                            // top-level fields; would need to be extended
+                            // in the future to work for e.g. `List<Any>`.
+                            OpenApiSchema::Any { .. } => {
+                                buf.write(format!(
                                         "private val {prop_name}: JsonValue = JsonValue.from({prop_name})"
                                     ));
-                                }
-                                _ => {
-                                    buf.write(format!("private val {prop_name}: "));
-                                    render_schema(ctx, buf, prop_name, schema)?;
-                                    buf.write(format!(" = {prop_name}"));
-                                }
                             }
-                            buf.end_line();
-                        } else {
-                            buf.write(format!("JsonValue.from({prop_name}),"));
+                            _ => {
+                                buf.write(format!("private val {prop_name}: "));
+                                render_schema(ctx, buf, prop_name, schema)?;
+                                buf.write(format!(" = {prop_name}"));
+                            }
                         }
+                        buf.end_line();
                     }
                     TupleField::Const(sconst) => {
-                        if level == 0 {
-                            buf.writeln(format!("private val f{f_idx}: String = \"{sconst}\""));
-                            f_idx += 1;
-                        } else {
-                            buf.write(format!("JsonValue.from(\"{sconst}\"),"));
-                        }
+                        buf.writeln(format!("private val f{f_idx}: String = \"{sconst}\""));
+                        f_idx += 1;
                     }
                 }
             }
