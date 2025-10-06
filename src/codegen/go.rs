@@ -206,7 +206,6 @@ fn render_schema(
             prefix_items,
             x_turbopuffer_variant_name: _,
             x_turbopuffer_variant_drop_on_conflict: _,
-            x_turbopuffer_flatten: _,
             title: _,
         } => {
             // Since Go doesn't natively support tuples, we convert each tuple
@@ -274,14 +273,6 @@ fn render_schema(
                         match field {
                             TupleField::Const(sconst) => {
                                 buf.writeln(format!("\"{sconst}\","));
-                            }
-                            TupleField::StartIndent => {
-                                buf.writeln("[]any{");
-                                buf.indent();
-                            }
-                            TupleField::EndIndent => {
-                                buf.unindent();
-                                buf.writeln("},");
                             }
                             TupleField::Normal { name, schema: _ } => {
                                 buf.writeln(format!("v.{name},"));
