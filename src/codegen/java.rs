@@ -2,8 +2,9 @@ use std::{collections::BTreeMap, error::Error};
 
 use crate::{
     codegen::{
+        OpenApiSchema,
         shared::{self, ConflictBehavior, TupleField},
-        strip_schema_ref_prefix, OpenApiSchema,
+        strip_schema_ref_prefix,
     },
     util::codegen_buf::CodegenBuf,
 };
