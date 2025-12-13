@@ -29,8 +29,12 @@ pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf
     buf.writeln("import com.fasterxml.jackson.annotation.JsonIgnore");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonProperty");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonPropertyOrder");
+    buf.writeln("import com.fasterxml.jackson.annotation.JsonValue as JsonValueAnnotation");
+    buf.writeln("import com.fasterxml.jackson.core.ObjectCodec");
+    buf.writeln("import com.fasterxml.jackson.databind.JsonNode");
     buf.writeln("import com.fasterxml.jackson.databind.annotation.JsonDeserialize");
     buf.writeln("import com.fasterxml.jackson.databind.json.JsonMapper");
+    buf.writeln("import com.turbopuffer.core.BaseDeserializer");
     buf.writeln("import com.turbopuffer.core.jsonMapper");
     buf.writeln("import com.turbopuffer.core.JsonValue");
     buf.writeln("import java.util.Objects");
@@ -429,11 +433,12 @@ fn render_any_of_refs(
         class_decl.push_str(&format!(" : {inherits}()"));
     }
 
-    // Add deserializer to root sealed classes only. RankBy/RankByText excluded (TODO).
-    if !has_parent && name != "RankBy" && name != "RankByText" {
-        let deserializer_class = format!("{name}Deserializer");
+    // Add deserializer to root sealed classes and RankByText (which extends RankBy).
+    let is_top_level = !has_parent;
+    let needs_deserializer = is_top_level || name == "RankByText";
+    if needs_deserializer {
         buf.writeln(format!(
-            "@JsonDeserialize(using = {deserializer_class}::class)"
+            "@JsonDeserialize(using = {name}.Deserializer::class)"
         ));
     }
 
@@ -467,8 +472,35 @@ fn render_any_of_refs(
                 }
             }
             Ok::<_, Box<dyn Error>>(())
-        })
-    })
+        })?;
+
+        // For sealed classes that need deserialization, add Deserializer inner class
+        if needs_deserializer {
+            buf.writeln("");
+            buf.write_block(format!("    class Deserializer : BaseDeserializer<{name}>({name}::class)"), |buf| {
+                buf.write_block(format!("        override fun ObjectCodec.deserialize(node: JsonNode): {name}"), |buf| {
+                    buf.writeln(format!("            return {name}Raw(JsonValue.fromJsonNode(node))"));
+                });
+            });
+        }
+
+        Ok::<_, Box<dyn Error>>(())
+    })?;
+
+    // For sealed classes that need deserialization, add Raw variant class outside the sealed class
+    if needs_deserializer {
+        buf.writeln("");
+        buf.write_block(format!("class {name}Raw internal constructor(value: JsonValue) : {name}()"), |buf| {
+            buf.writeln("@JsonValueAnnotation");
+            buf.writeln("private val value: JsonValue = value");
+            buf.writeln("");
+            buf.write_block("override fun toString(): String", |buf| {
+                buf.writeln("return jsonMapper.writeValueAsString(value)");
+            });
+        });
+    }
+
+    Ok(())
 }
 
 struct RenderArrayTupleConstructorParams<'a> {
