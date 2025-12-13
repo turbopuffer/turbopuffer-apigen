@@ -26,7 +26,6 @@ pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf
     buf.writeln("import com.fasterxml.jackson.annotation.JsonFormat");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonAutoDetect");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility");
-    buf.writeln("import com.fasterxml.jackson.annotation.JsonIgnore");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonProperty");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonPropertyOrder");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonValue as JsonValueAnnotation");
@@ -37,7 +36,6 @@ pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf
     buf.writeln("import com.turbopuffer.core.BaseDeserializer");
     buf.writeln("import com.turbopuffer.core.jsonMapper");
     buf.writeln("import com.turbopuffer.core.JsonValue");
-    buf.writeln("import java.util.Objects");
     buf.writeln("");
     buf.writeln("val jsonMapper: JsonMapper = jsonMapper()");
     buf.writeln("");
@@ -428,21 +426,11 @@ fn render_any_of_refs(
         // For sealed classes that need deserialization, add Deserializer inner class
         if needs_deserializer {
             buf.writeln("");
-            buf.write_block(
-                format!("    class Deserializer : BaseDeserializer<{name}>({name}::class)"),
-                |buf| {
-                    buf.write_block(
-                        format!(
-                            "        override fun ObjectCodec.deserialize(node: JsonNode): {name}"
-                        ),
-                        |buf| {
-                            buf.writeln(format!(
-                                "            return {name}Raw(JsonValue.fromJsonNode(node))"
-                            ));
-                        },
-                    );
-                },
-            );
+            buf.write_block(format!("    class Deserializer : BaseDeserializer<{name}>({name}::class)"), |buf| {
+                buf.write_block(format!("        override fun ObjectCodec.deserialize(node: JsonNode): {name}"), |buf| {
+                    buf.writeln(format!("            return {name}Raw(JsonValue.fromJsonNode(node))"));
+                });
+            });
         }
 
         Ok::<_, Box<dyn Error>>(())
@@ -451,17 +439,14 @@ fn render_any_of_refs(
     // For sealed classes that need deserialization, add Raw variant class outside the sealed class
     if needs_deserializer {
         buf.writeln("");
-        buf.write_block(
-            format!("class {name}Raw internal constructor(value: JsonValue) : {name}()"),
-            |buf| {
-                buf.writeln("@JsonValueAnnotation");
-                buf.writeln("private val value: JsonValue = value");
-                buf.writeln("");
-                buf.write_block("override fun toString(): String", |buf| {
-                    buf.writeln("return jsonMapper.writeValueAsString(value)");
-                });
-            },
-        );
+        buf.write_block(format!("class {name}Raw internal constructor(value: JsonValue) : {name}()"), |buf| {
+            buf.writeln("@JsonValueAnnotation");
+            buf.writeln("private val value: JsonValue = value");
+            buf.writeln("");
+            buf.write_block("override fun toString(): String", |buf| {
+                buf.writeln("return jsonMapper.writeValueAsString(value)");
+            });
+        });
     }
 
     Ok(())
