@@ -273,55 +273,6 @@ fn render_schema(
             buf.write_block("override fun toString(): String", |buf| {
                 buf.writeln("return jsonMapper.writeValueAsString(this)");
             });
-
-            // Collect non-const fields for equals/hashCode.
-            let mut field_names = Vec::new();
-            for field in &fields {
-                match field {
-                    TupleField::Normal {
-                        name: prop_name, ..
-                    } => {
-                        field_names.push(prop_name.clone());
-                    }
-                    TupleField::Const(_) => {}
-                }
-            }
-
-            buf.write_block("override fun equals(other: Any?): Boolean", |buf| {
-                buf.writeln("if (this === other) {");
-                buf.writeln("    return true");
-                buf.writeln("}");
-                buf.writeln("");
-                if field_names.is_empty() {
-                    buf.writeln(format!("return other is {name}"));
-                } else {
-                    buf.writeln(format!("return other is {name} &&"));
-                    for (i, field_name) in field_names.iter().enumerate() {
-                        if i == field_names.len() - 1 {
-                            buf.writeln(format!("    {field_name} == other.{field_name}"));
-                        } else {
-                            buf.writeln(format!("    {field_name} == other.{field_name} &&"));
-                        }
-                    }
-                }
-            });
-
-            if field_names.is_empty() {
-                buf.writeln("override fun hashCode(): Int = 0");
-            } else {
-                let hash_args = field_names
-                    .iter()
-                    .map(|n| n.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                // Exclude lazy delegate from serialization.
-                buf.writeln("@delegate:JsonIgnore");
-                buf.write_block("private val hashCode: Int by lazy", |buf| {
-                    buf.writeln(format!("Objects.hash({hash_args})"));
-                });
-                buf.writeln("");
-                buf.writeln("override fun hashCode(): Int = hashCode");
-            }
             buf.unindent();
 
             buf.write_block("companion object", |buf| {
@@ -477,11 +428,21 @@ fn render_any_of_refs(
         // For sealed classes that need deserialization, add Deserializer inner class
         if needs_deserializer {
             buf.writeln("");
-            buf.write_block(format!("    class Deserializer : BaseDeserializer<{name}>({name}::class)"), |buf| {
-                buf.write_block(format!("        override fun ObjectCodec.deserialize(node: JsonNode): {name}"), |buf| {
-                    buf.writeln(format!("            return {name}Raw(JsonValue.fromJsonNode(node))"));
-                });
-            });
+            buf.write_block(
+                format!("    class Deserializer : BaseDeserializer<{name}>({name}::class)"),
+                |buf| {
+                    buf.write_block(
+                        format!(
+                            "        override fun ObjectCodec.deserialize(node: JsonNode): {name}"
+                        ),
+                        |buf| {
+                            buf.writeln(format!(
+                                "            return {name}Raw(JsonValue.fromJsonNode(node))"
+                            ));
+                        },
+                    );
+                },
+            );
         }
 
         Ok::<_, Box<dyn Error>>(())
@@ -490,14 +451,17 @@ fn render_any_of_refs(
     // For sealed classes that need deserialization, add Raw variant class outside the sealed class
     if needs_deserializer {
         buf.writeln("");
-        buf.write_block(format!("class {name}Raw internal constructor(value: JsonValue) : {name}()"), |buf| {
-            buf.writeln("@JsonValueAnnotation");
-            buf.writeln("private val value: JsonValue = value");
-            buf.writeln("");
-            buf.write_block("override fun toString(): String", |buf| {
-                buf.writeln("return jsonMapper.writeValueAsString(value)");
-            });
-        });
+        buf.write_block(
+            format!("class {name}Raw internal constructor(value: JsonValue) : {name}()"),
+            |buf| {
+                buf.writeln("@JsonValueAnnotation");
+                buf.writeln("private val value: JsonValue = value");
+                buf.writeln("");
+                buf.write_block("override fun toString(): String", |buf| {
+                    buf.writeln("return jsonMapper.writeValueAsString(value)");
+                });
+            },
+        );
     }
 
     Ok(())
