@@ -2,9 +2,8 @@ use std::{collections::BTreeMap, error::Error};
 
 use crate::{
     codegen::{
-        OpenApiSchema,
         shared::{self, ConflictBehavior, TupleField},
-        strip_schema_ref_prefix,
+        strip_schema_ref_prefix, OpenApiSchema,
     },
     util::codegen_buf::CodegenBuf,
 };
@@ -29,9 +28,11 @@ pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf
     buf.writeln("import com.fasterxml.jackson.annotation.JsonIgnore");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonProperty");
     buf.writeln("import com.fasterxml.jackson.annotation.JsonPropertyOrder");
+    buf.writeln("import com.fasterxml.jackson.databind.annotation.JsonDeserialize");
     buf.writeln("import com.fasterxml.jackson.databind.json.JsonMapper");
     buf.writeln("import com.turbopuffer.core.jsonMapper");
     buf.writeln("import com.turbopuffer.core.JsonValue");
+    buf.writeln("import java.util.Objects");
     buf.writeln("");
     buf.writeln("val jsonMapper: JsonMapper = jsonMapper()");
     buf.writeln("");
@@ -267,6 +268,55 @@ fn render_schema(
             buf.write_block("override fun toString(): String", |buf| {
                 buf.writeln("return jsonMapper.writeValueAsString(this)");
             });
+
+            // Collect non-const fields for equals/hashCode.
+            let mut field_names = Vec::new();
+            for field in &fields {
+                match field {
+                    TupleField::Normal {
+                        name: prop_name, ..
+                    } => {
+                        field_names.push(prop_name.clone());
+                    }
+                    TupleField::Const(_) => {}
+                }
+            }
+
+            buf.write_block("override fun equals(other: Any?): Boolean", |buf| {
+                buf.writeln("if (this === other) {");
+                buf.writeln("    return true");
+                buf.writeln("}");
+                buf.writeln("");
+                if field_names.is_empty() {
+                    buf.writeln(format!("return other is {name}"));
+                } else {
+                    buf.writeln(format!("return other is {name} &&"));
+                    for (i, field_name) in field_names.iter().enumerate() {
+                        if i == field_names.len() - 1 {
+                            buf.writeln(format!("    {field_name} == other.{field_name}"));
+                        } else {
+                            buf.writeln(format!("    {field_name} == other.{field_name} &&"));
+                        }
+                    }
+                }
+            });
+
+            if field_names.is_empty() {
+                buf.writeln("override fun hashCode(): Int = 0");
+            } else {
+                let hash_args = field_names
+                    .iter()
+                    .map(|n| n.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                // Exclude lazy delegate from serialization.
+                buf.writeln("@delegate:JsonIgnore");
+                buf.write_block("private val hashCode: Int by lazy", |buf| {
+                    buf.writeln(format!("Objects.hash({hash_args})"));
+                });
+                buf.writeln("");
+                buf.writeln("override fun hashCode(): Int = hashCode");
+            }
             buf.unindent();
 
             buf.write_block("companion object", |buf| {
@@ -372,8 +422,18 @@ fn render_any_of_refs(
 
     // Class declaration.
     let mut class_decl = format!("sealed class {name}()");
-    if let Some(inherits) = ctx.inherits.get(name) {
+    let has_parent = ctx.inherits.get(name).is_some();
+    if has_parent {
+        let inherits = ctx.inherits.get(name).unwrap();
         class_decl.push_str(&format!(" : {inherits}()"));
+    }
+
+    // Add deserializer to root sealed classes only. RankBy/RankByText excluded (TODO).
+    if !has_parent && name != "RankBy" && name != "RankByText" {
+        let deserializer_class = format!("{name}Deserializer");
+        buf.writeln(format!(
+            "@JsonDeserialize(using = {deserializer_class}::class)"
+        ));
     }
 
     // Methods to construct child classes.
