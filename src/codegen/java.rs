@@ -423,9 +423,7 @@ fn render_any_of_refs(
             format!("    class Deserializer : BaseDeserializer<{name}>({name}::class)"),
             |buf| {
                 buf.write_block(
-                    format!(
-                        "        override fun ObjectCodec.deserialize(node: JsonNode): {name}"
-                    ),
+                    format!("        override fun ObjectCodec.deserialize(node: JsonNode): {name}"),
                     |buf| {
                         buf.writeln(format!(
                             "            return {name}Raw(JsonValue.fromJsonNode(node))"
