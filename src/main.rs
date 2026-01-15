@@ -4,6 +4,8 @@ use clap::{Parser, ValueEnum};
 
 use serde::Deserialize;
 
+use crate::codegen::OpenApiSchema;
+
 mod codegen;
 mod util;
 
@@ -85,6 +87,8 @@ pub fn run(language: Language) -> Result<(), Box<dyn Error>> {
         parsed_schemas.insert(k.to_string(), schema);
     }
 
+    add_filter_to_rank_by_text(&mut parsed_schemas)?;
+
     let content = match language {
         Language::Go => codegen::go::render(parsed_schemas)?,
         Language::Java => codegen::java::render(parsed_schemas)?,
@@ -100,4 +104,31 @@ pub fn run(language: Language) -> Result<(), Box<dyn Error>> {
 #[derive(Debug, Deserialize)]
 struct StainlessStats {
     openapi_spec_url: String,
+}
+
+fn add_filter_to_rank_by_text(
+    schemas: &mut BTreeMap<String, OpenApiSchema>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(schema) = schemas.get_mut("RankByText") else {
+        return Ok(());
+    };
+
+    let OpenApiSchema::AnyOf { any_of, .. } = schema else {
+        return Err("RankByText schema is not anyOf".into());
+    };
+
+    let filter_ref = "#/components/schemas/Filter";
+    let already_present = any_of.iter().any(|item| match item {
+        OpenApiSchema::Ref { sref, .. } => sref == filter_ref,
+        _ => false,
+    });
+
+    if !already_present {
+        any_of.push(OpenApiSchema::Ref {
+            sref: filter_ref.to_string(),
+            title: None,
+        });
+    }
+
+    Ok(())
 }
