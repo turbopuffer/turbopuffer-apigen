@@ -44,7 +44,7 @@ pub fn render(mut spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
         if i > 0 {
             buf.writeln("");
         }
-        render_schema(&ctx, &mut buf, &name, &schema)?;
+        render_schema_top_level(&ctx, &mut buf, &name, &schema)?;
     }
 
     Ok(buf)
@@ -124,6 +124,54 @@ fn rewrite_single_field_objects_to_tuples(
         }
     }
     Ok(names)
+}
+
+fn render_schema_top_level(
+    ctx: &RenderCtx,
+    buf: &mut CodegenBuf,
+    name: &str,
+    schema: &OpenApiSchema,
+) -> Result<(), Box<dyn Error>> {
+    match schema {
+        OpenApiSchema::ArrayList { .. } => {
+            buf.start_line();
+
+            // Class and constructor declaration.
+            buf.write(format!(
+                "class {name} private constructor(@JsonValueAnnotation private val items: "
+            ));
+            render_schema(ctx, buf, name, schema)?;
+            buf.write(")");
+            if let Some(inherits) = ctx.inherits.get(name) {
+                buf.write(format!(" : {inherits}()"));
+            }
+            buf.write(" {");
+            buf.end_line();
+
+            // Class body.
+            buf.indent();
+            buf.write_block("override fun toString(): String", |buf| {
+                buf.writeln("return jsonMapper.writeValueAsString(this)");
+            });
+            buf.unindent();
+
+            buf.write_block("companion object", |buf| {
+                buf.writeln("@JvmSynthetic");
+                buf.start_line();
+                buf.writeln("internal fun create(items: ");
+                render_schema(ctx, buf, name, schema)?;
+                buf.write(format!(") : {name} = {name}(items)"));
+                buf.end_line();
+                Ok::<_, Box<dyn Error>>(())
+            })?;
+
+            // End class declaration.
+            buf.writeln("}");
+
+            Ok(())
+        }
+        _ => render_schema(ctx, buf, name, schema),
+    }
 }
 
 fn render_schema(
@@ -394,24 +442,34 @@ fn render_any_of_refs(
                 };
                 let sref = strip_schema_ref_prefix(sref)?;
                 let subname = title.as_deref().unwrap_or(sref);
-                if let OpenApiSchema::ArrayTuple { prefix_items, .. } = &ctx.schemas[sref] {
-                    let new_func_name = {
-                        let s = subname.strip_prefix(name).unwrap_or(subname);
-                        let s = shared::lower_camel_case(&s);
-                        munge_func_name(&s)
-                    };
-
-                    buf.writeln("@JvmStatic");
-                    render_array_tuple_constructor(RenderArrayTupleConstructorParams {
-                        ctx,
-                        buf,
-                        new_func_vis: "public",
-                        new_func_name: &new_func_name,
-                        new_func_can_use_vararg: true,
-                        class_name: &sref,
-                        old_func_name: &format!("{sref}.create"),
-                        prefix_items,
-                    })?;
+                let new_func_name = {
+                    let s = subname.strip_prefix(name).unwrap_or(subname);
+                    let s = shared::lower_camel_case(&s);
+                    munge_func_name(&s)
+                };
+                match &ctx.schemas[sref] {
+                    OpenApiSchema::ArrayTuple { prefix_items, .. } => {
+                        buf.writeln("@JvmStatic");
+                        render_array_tuple_constructor(RenderArrayTupleConstructorParams {
+                            ctx,
+                            buf,
+                            new_func_vis: "public",
+                            new_func_name: &new_func_name,
+                            new_func_can_use_vararg: true,
+                            class_name: &sref,
+                            old_func_name: &format!("{sref}.create"),
+                            prefix_items,
+                        })?;
+                    }
+                    OpenApiSchema::ArrayList { items, .. } => {
+                        buf.writeln("@JvmStatic");
+                        buf.start_line();
+                        buf.write(format!("public fun {new_func_name}(vararg items: "));
+                        render_schema(ctx, buf, name, items)?;
+                        buf.write(format!(") : {sref} = {sref}.create(items.asList())"));
+                        buf.end_line();
+                    }
+                    _ => (),
                 }
             }
             Ok::<_, Box<dyn Error>>(())
