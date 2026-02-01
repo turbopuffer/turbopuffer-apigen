@@ -160,3 +160,18 @@ pub fn snake_to_camel_case(input: &str) -> String {
     }
     s
 }
+
+pub fn camel_to_snake_case(input: &str) -> String {
+    let mut s = String::new();
+    let mut chars = input.chars();
+    if let Some(c) = chars.next() {
+        s.extend(c.to_lowercase());
+    }
+    while let Some(c) = chars.next() {
+        if c.is_uppercase() {
+            s.push('_');
+        }
+        s.extend(c.to_lowercase());
+    }
+    s
+}

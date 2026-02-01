@@ -2,15 +2,15 @@ use std::{collections::BTreeMap, error::Error};
 
 use crate::{
     codegen::{
-        OpenApiSchema,
+        OpenApiSchema, OpenApiSpec,
         shared::{self, ConflictBehavior, TupleField},
         strip_schema_ref_prefix,
     },
     util::codegen_buf::CodegenBuf,
 };
 
-pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf, Box<dyn Error>> {
-    shared::extract_any_of_tuples(&mut schemas, ConflictBehavior::Drop)?;
+pub fn render(mut spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
+    shared::extract_any_of_tuples(&mut spec.managed_schemas, ConflictBehavior::Drop)?;
 
     let mut buf = CodegenBuf::with_indent("\t");
 
@@ -23,10 +23,10 @@ pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf
     );
     buf.writeln("");
 
-    for (name, schema) in &schemas {
+    for (name, schema) in &spec.managed_schemas {
         buf.start_line();
         buf.write(format!("type {name} "));
-        render_schema(&schemas, &mut buf, Some(name), &schema)?;
+        render_schema(&spec.managed_schemas, &mut buf, Some(name), &schema)?;
         buf.end_line();
     }
 

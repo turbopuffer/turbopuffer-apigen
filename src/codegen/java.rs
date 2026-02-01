@@ -2,19 +2,19 @@ use std::{collections::BTreeMap, error::Error};
 
 use crate::{
     codegen::{
-        OpenApiSchema,
+        OpenApiSchema, OpenApiSpec,
         shared::{self, ConflictBehavior, TupleField},
         strip_schema_ref_prefix,
     },
     util::codegen_buf::CodegenBuf,
 };
 
-pub fn render(mut schemas: BTreeMap<String, OpenApiSchema>) -> Result<CodegenBuf, Box<dyn Error>> {
-    shared::extract_any_of_tuples(&mut schemas, ConflictBehavior::AppendSuffix)?;
+pub fn render(mut spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
+    shared::extract_any_of_tuples(&mut spec.managed_schemas, ConflictBehavior::AppendSuffix)?;
     let ctx = RenderCtx {
-        inherits: compute_inherits(&schemas)?,
-        objects_as_tuples: rewrite_single_field_objects_to_tuples(&mut schemas)?,
-        schemas,
+        inherits: compute_inherits(&spec.managed_schemas)?,
+        objects_as_tuples: rewrite_single_field_objects_to_tuples(&mut spec.managed_schemas)?,
+        schemas: spec.managed_schemas,
     };
 
     let mut buf = CodegenBuf::default();

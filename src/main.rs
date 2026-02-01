@@ -1,8 +1,9 @@
-use std::{collections::BTreeMap, error::Error, fmt, fs, process};
+use std::{error::Error, fmt, fs, process};
 
 use clap::{Parser, ValueEnum};
-
 use serde::Deserialize;
+
+use crate::codegen::OpenApiSpec;
 
 mod codegen;
 mod util;
@@ -70,26 +71,13 @@ pub fn run(language: Language) -> Result<(), Box<dyn Error>> {
     };
 
     log!("parsing OpenAPI spec");
-    let mut openapi: serde_yaml::Value = serde_yaml::from_str(&openapi_yaml)?;
-    let openapi_schemas = openapi["components"]["schemas"]
-        .as_mapping_mut()
-        .ok_or_else(|| "no schemas found in OpenAPI spec")?;
-
-    let mut parsed_schemas = BTreeMap::new();
-    for (k, v) in openapi_schemas {
-        let k = k.as_str().unwrap();
-        if !TYPE_PREFIXES.iter().any(|prefix| k.starts_with(prefix)) {
-            continue;
-        }
-        let schema = serde_yaml::from_value(v.clone())?;
-        parsed_schemas.insert(k.to_string(), schema);
-    }
+    let openapi_spec = OpenApiSpec::parse(&openapi_yaml, TYPE_PREFIXES)?;
 
     let content = match language {
-        Language::Go => codegen::go::render(parsed_schemas)?,
-        Language::Java => codegen::java::render(parsed_schemas)?,
-        Language::Python => codegen::python::render(parsed_schemas)?,
-        Language::Typescript => codegen::typescript::render(parsed_schemas)?,
+        Language::Go => codegen::go::render(openapi_spec)?,
+        Language::Java => codegen::java::render(openapi_spec)?,
+        Language::Python => codegen::python::render(openapi_spec)?,
+        Language::Typescript => codegen::typescript::render(openapi_spec)?,
     };
 
     print!("{}", content.into_string());
