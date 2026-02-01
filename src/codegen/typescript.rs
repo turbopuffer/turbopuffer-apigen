@@ -9,7 +9,7 @@ pub fn render(spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
     buf.writeln("");
 
     for name in spec.unmanaged_schemas {
-        buf.writeln(format!("import {name} from '..';"));
+        buf.writeln(format!("import {name} from '../index';"));
     }
     buf.writeln("");
 
