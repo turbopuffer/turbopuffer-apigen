@@ -10,4 +10,4 @@ monostate = "0.1.14"
 reqwest = { version = "0.12.15", features = ["blocking"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"
-time = { version = "0.3.41", features = ["formatting", "macros"] }
+time = { version = "0.3.47", features = ["formatting", "macros"] }
