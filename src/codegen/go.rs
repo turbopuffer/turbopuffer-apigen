@@ -19,7 +19,7 @@ pub fn render(mut spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
     buf.writeln("package turbopuffer");
     buf.writeln("");
     buf.writeln(
-        r#"import shimjson "github.com/turbopuffer/turbopuffer-go/internal/encoding/json""#,
+        r#"import shimjson "github.com/turbopuffer/turbopuffer-go/v2/internal/encoding/json""#,
     );
     buf.writeln("");
 
