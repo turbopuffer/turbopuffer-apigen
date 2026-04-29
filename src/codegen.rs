@@ -72,6 +72,15 @@ pub enum OpenApiSchema {
         #[serde(rename = "title")]
         title: Option<String>,
     },
+    Map {
+        #[serde(rename = "description")]
+        _description: Option<String>,
+        #[serde(rename = "type")]
+        _type: MustBe!("object"),
+        additional_properties: Box<OpenApiSchema>,
+        #[serde(rename = "title")]
+        title: Option<String>,
+    },
     ArrayList {
         description: Option<String>,
         #[serde(rename = "type")]
@@ -172,6 +181,7 @@ impl OpenApiSchema {
             | OpenApiSchema::Any { title, .. }
             | OpenApiSchema::ArrayTuple { title, .. }
             | OpenApiSchema::Object { title, .. }
+            | OpenApiSchema::Map { title, .. }
             | OpenApiSchema::ArrayList { title, .. } => title.as_deref(),
         }
     }
@@ -187,6 +197,7 @@ impl OpenApiSchema {
             | OpenApiSchema::Any { title, .. }
             | OpenApiSchema::ArrayTuple { title, .. }
             | OpenApiSchema::Object { title, .. }
+            | OpenApiSchema::Map { title, .. }
             | OpenApiSchema::ArrayList { title, .. } => Some(title),
         }
     }
@@ -207,6 +218,12 @@ impl OpenApiSchema {
                 for schema in properties.values() {
                     schema.collect_refs(refs);
                 }
+            }
+            OpenApiSchema::Map {
+                additional_properties,
+                ..
+            } => {
+                additional_properties.collect_refs(refs);
             }
             OpenApiSchema::ArrayList { items, .. } => {
                 items.collect_refs(refs);

@@ -56,6 +56,12 @@ fn assign_generics(schemas: &mut [OpenApiSchema]) -> (String, String) {
                     assign(index, prop_schema);
                 }
             }
+            OpenApiSchema::Map {
+                additional_properties,
+                ..
+            } => {
+                assign(index, additional_properties);
+            }
             OpenApiSchema::ArrayList {
                 items, description, ..
             } => {
@@ -181,6 +187,15 @@ fn render_schema(
                     buf.writeln("})");
                 },
             );
+        }
+        OpenApiSchema::Map {
+            _description: _,
+            _type: _,
+            additional_properties,
+            title: _,
+        } => {
+            buf.write("map[string]");
+            render_schema(schemas, buf, None, additional_properties)?;
         }
         OpenApiSchema::ArrayList {
             description,

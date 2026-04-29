@@ -200,6 +200,16 @@ fn render_schema(
             }
         }
         OpenApiSchema::Object { .. } => Err("object schemas unsupported")?,
+        OpenApiSchema::Map {
+            _description: _,
+            _type: _,
+            additional_properties,
+            title: _,
+        } => {
+            buf.write("Map<String, ");
+            render_schema(ctx, buf, name, additional_properties)?;
+            buf.write(">");
+        }
         OpenApiSchema::ArrayList {
             description: _,
             _type: _,

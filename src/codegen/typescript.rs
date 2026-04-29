@@ -69,6 +69,16 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             }
             buf.write(" }")
         }
+        OpenApiSchema::Map {
+            _description: _,
+            _type: _,
+            additional_properties,
+            title: _,
+        } => {
+            buf.write("Record<string, ");
+            render_schema(buf, *additional_properties)?;
+            buf.write(">")
+        }
         OpenApiSchema::ArrayList {
             description: _,
             _type: _,
