@@ -78,6 +78,10 @@ pub enum OpenApiSchema {
         #[serde(rename = "type")]
         _type: MustBe!("object"),
         additional_properties: Box<OpenApiSchema>,
+        /// JSON Schema describing the map's keys. Currently only the `title`
+        /// is consulted (e.g. `title: attr` to mark keys as attribute names).
+        #[serde(default)]
+        property_names: Option<Box<OpenApiSchema>>,
         /// When used in an `anyOf` schema, the name to use for the variant (if
         /// the target language requires variants to be explicitly named). If
         /// omitted, the name is derived from the `const` value of the inner
@@ -232,9 +236,13 @@ impl OpenApiSchema {
             }
             OpenApiSchema::Map {
                 additional_properties,
+                property_names,
                 ..
             } => {
                 additional_properties.collect_refs(refs);
+                if let Some(property_names) = property_names {
+                    property_names.collect_refs(refs);
+                }
             }
             OpenApiSchema::ArrayList { items, .. } => {
                 items.collect_refs(refs);

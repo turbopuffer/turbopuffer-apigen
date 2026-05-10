@@ -80,10 +80,20 @@ fn render_schema(
             _description: _,
             _type: _,
             additional_properties,
+            property_names,
             x_turbopuffer_variant_name: _,
             title: _,
         } => {
-            buf.write("Record<string, ");
+            let key_type = if property_names
+                .as_deref()
+                .and_then(OpenApiSchema::title)
+                == Some("attr")
+            {
+                "keyof T & string"
+            } else {
+                "string"
+            };
+            buf.write(format!("Record<{key_type}, "));
             render_schema(buf, *additional_properties, managed)?;
             buf.write(">")
         }

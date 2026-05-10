@@ -267,6 +267,7 @@ fn render_schema(
             _description: _,
             _type: _,
             additional_properties,
+            property_names: _,
             x_turbopuffer_variant_name: _,
             title: _,
         } => {
