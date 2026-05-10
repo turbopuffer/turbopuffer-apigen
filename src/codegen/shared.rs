@@ -48,11 +48,40 @@ pub fn extract_any_of_tuples(
                 });
             }
             for item in any_of {
-                let Some(suffix) = extractable_variant_suffix(item) else {
-                    continue;
+                // Pick a `title_suffix` (drives the generated factory function
+                // name) and a `name_suffix` (drives the extracted schema's
+                // identifier). Keeping them separate lets siblings discriminated
+                // only by value shape (e.g. scalar vs array, with/without params)
+                // collapse into a single factory and surface as JVM overloads
+                // to Java/Kotlin callers, while their schemas stay unique via
+                // `x-turbopuffer-variant-name`.
+                let (title_suffix, name_suffix) = match item {
+                    OpenApiSchema::ArrayTuple {
+                        prefix_items,
+                        x_turbopuffer_variant_name,
+                        ..
+                    } => {
+                        let Some(sconst) = single_const(prefix_items) else {
+                            continue;
+                        };
+                        let title = sconst.to_owned();
+                        let name = x_turbopuffer_variant_name
+                            .clone()
+                            .unwrap_or_else(|| title.clone());
+                        (title, name)
+                    }
+                    OpenApiSchema::String {
+                        x_turbopuffer_variant_name: Some(name),
+                        ..
+                    }
+                    | OpenApiSchema::Map {
+                        x_turbopuffer_variant_name: Some(name),
+                        ..
+                    } => (name.clone(), name.clone()),
+                    _ => continue,
                 };
-                let ref_title = format!("{name}{suffix}");
-                let mut name = format!("{name}{suffix}");
+                let ref_title = format!("{name}{title_suffix}");
+                let mut name = format!("{name}{name_suffix}");
                 if conflict_behavior == ConflictBehavior::AppendSuffix {
                     let mut new_name = name.clone();
                     let mut counter = 2;
@@ -85,35 +114,6 @@ pub fn extract_any_of_tuples(
         }
     }
     Ok(())
-}
-
-/// Returns the variant name suffix that should be appended to the parent
-/// `anyOf` schema's name when extracting `schema` to a top-level type.
-///
-/// Returns `None` if the variant is not extractable (e.g., a `Ref`, or an
-/// `ArrayTuple` with no single `Const`).
-fn extractable_variant_suffix(schema: &OpenApiSchema) -> Option<String> {
-    match schema {
-        OpenApiSchema::ArrayTuple {
-            prefix_items,
-            x_turbopuffer_variant_name,
-            ..
-        } => {
-            if let Some(name) = x_turbopuffer_variant_name {
-                return Some(name.clone());
-            }
-            single_const(prefix_items).map(|s| s.to_owned())
-        }
-        OpenApiSchema::String {
-            x_turbopuffer_variant_name,
-            ..
-        } => x_turbopuffer_variant_name.clone(),
-        OpenApiSchema::Map {
-            x_turbopuffer_variant_name,
-            ..
-        } => x_turbopuffer_variant_name.clone(),
-        _ => None,
-    }
 }
 
 /// Returns the value of the only `Const` in `prefix_items`, or `None` if there
