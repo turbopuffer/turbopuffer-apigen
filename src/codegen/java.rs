@@ -170,6 +170,81 @@ fn render_schema_top_level(
 
             Ok(())
         }
+        OpenApiSchema::String { .. } => {
+            // Top-level string schemas become wrapper classes that serialize
+            // transparently as the underlying string via `@JsonValue`.
+            buf.start_line();
+            buf.write(format!("class {name} private constructor(value: String)"));
+            if let Some(inherits) = ctx.inherits.get(name) {
+                buf.write(format!(" : {inherits}()"));
+            }
+            buf.write(" {");
+            buf.end_line();
+
+            buf.indent();
+            buf.writeln("@JsonValueAnnotation");
+            buf.writeln("private val value: String = value");
+            buf.write_block("override fun toString(): String", |buf| {
+                buf.writeln("return jsonMapper.writeValueAsString(value)");
+            });
+            buf.unindent();
+
+            buf.write_block("companion object", |buf| {
+                buf.writeln("@JvmSynthetic");
+                buf.writeln(format!(
+                    "internal fun create(value: String): {name} = {name}(value)"
+                ));
+            });
+
+            buf.writeln("}");
+            Ok(())
+        }
+        OpenApiSchema::Map {
+            additional_properties,
+            ..
+        } => {
+            // Top-level map schemas become wrapper classes whose constructor
+            // takes a `name` (the JSON map key) and a `value` (the JSON map
+            // value), and serialize as a singleton object `{<name>: <value>}`.
+            let value_schema = &**additional_properties;
+
+            buf.start_line();
+            buf.write(format!(
+                "class {name} private constructor(name: String, value: "
+            ));
+            render_schema(ctx, buf, name, value_schema)?;
+            buf.write(")");
+            if let Some(inherits) = ctx.inherits.get(name) {
+                buf.write(format!(" : {inherits}()"));
+            }
+            buf.write(" {");
+            buf.end_line();
+
+            buf.indent();
+            buf.writeln("@JsonValueAnnotation");
+            buf.start_line();
+            buf.write("private val data: Map<String, ");
+            render_schema(ctx, buf, name, value_schema)?;
+            buf.write("> = mapOf(name to value)");
+            buf.end_line();
+            buf.write_block("override fun toString(): String", |buf| {
+                buf.writeln("return jsonMapper.writeValueAsString(data)");
+            });
+            buf.unindent();
+
+            buf.write_block("companion object", |buf| {
+                buf.writeln("@JvmSynthetic");
+                buf.start_line();
+                buf.write("internal fun create(name: String, value: ");
+                render_schema(ctx, buf, name, value_schema)?;
+                buf.write(format!("): {name} = {name}(name, value)"));
+                buf.end_line();
+                Ok::<_, Box<dyn Error>>(())
+            })?;
+
+            buf.writeln("}");
+            Ok(())
+        }
         _ => render_schema(ctx, buf, name, schema),
     }
 }
@@ -204,6 +279,7 @@ fn render_schema(
             _description: _,
             _type: _,
             additional_properties,
+            x_turbopuffer_variant_name: _,
             title: _,
         } => {
             buf.write("Map<String, ");
@@ -351,6 +427,7 @@ fn render_schema(
         OpenApiSchema::String {
             _description: _,
             _type: _,
+            x_turbopuffer_variant_name: _,
             title: _,
         } => buf.write("String"),
         OpenApiSchema::Boolean {
@@ -477,6 +554,28 @@ fn render_any_of_refs(
                         buf.write(format!("public fun {new_func_name}(vararg items: "));
                         render_schema(ctx, buf, name, items)?;
                         buf.write(format!(") : {sref} = {sref}.create(items.asList())"));
+                        buf.end_line();
+                    }
+                    OpenApiSchema::String { .. } => {
+                        buf.writeln("@JvmStatic");
+                        buf.writeln(format!(
+                            "public fun {new_func_name}(value: String): {sref} = {sref}.create(value)"
+                        ));
+                    }
+                    OpenApiSchema::Map {
+                        additional_properties,
+                        ..
+                    } => {
+                        let value_schema = &**additional_properties;
+                        buf.writeln("@JvmStatic");
+                        buf.start_line();
+                        buf.write(format!(
+                            "public fun {new_func_name}(name: String, value: "
+                        ));
+                        render_schema(ctx, buf, name, value_schema)?;
+                        buf.write(format!(
+                            "): {sref} = {sref}.create(name, value)"
+                        ));
                         buf.end_line();
                     }
                     _ => (),

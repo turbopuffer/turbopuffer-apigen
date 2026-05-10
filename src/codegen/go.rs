@@ -24,13 +24,88 @@ pub fn render(mut spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
     buf.writeln("");
 
     for (name, schema) in &spec.managed_schemas {
-        buf.start_line();
-        buf.write(format!("type {name} "));
-        render_schema(&spec.managed_schemas, &mut buf, Some(name), &schema)?;
-        buf.end_line();
+        render_schema_top_level(&spec.managed_schemas, &mut buf, name, schema)?;
     }
 
     Ok(buf)
+}
+
+fn render_schema_top_level(
+    schemas: &BTreeMap<String, OpenApiSchema>,
+    buf: &mut CodegenBuf,
+    name: &str,
+    schema: &OpenApiSchema,
+) -> Result<(), Box<dyn Error>> {
+    match schema {
+        OpenApiSchema::String { .. } => {
+            // Top-level string schemas become a defined string type plus a
+            // matching constructor and `MarshalJSON` that emits the underlying
+            // string value transparently.
+            buf.writeln(format!("type {name} string"));
+
+            buf.write_block(format!("func New{name}(value string) {name}"), |buf| {
+                buf.writeln(format!("return {name}(value)"));
+            });
+
+            buf.write_block(
+                format!("func (v {name}) MarshalJSON() ([]byte, error)"),
+                |buf| {
+                    buf.writeln("return shimjson.Marshal(string(v))");
+                },
+            );
+            Ok(())
+        }
+        OpenApiSchema::Map {
+            additional_properties,
+            ..
+        } => {
+            // Top-level map schemas become a struct with `Name` and `Value`
+            // fields. Marshaling produces the singleton object
+            // `{<Name>: <Value>}`.
+            let value_schema = &**additional_properties;
+
+            // Struct definition.
+            buf.write_block(format!("type {name} struct"), |buf| {
+                buf.writeln("Name string");
+                buf.start_line();
+                buf.write("Value ");
+                render_schema(schemas, buf, None, value_schema)?;
+                buf.end_line();
+                Ok::<_, Box<dyn Error>>(())
+            })?;
+
+            // Constructor.
+            buf.start_line();
+            buf.write(format!("func New{name}(name string, value "));
+            render_schema(schemas, buf, None, value_schema)?;
+            buf.write(format!(") {name} {{"));
+            buf.end_line();
+            buf.indent();
+            buf.writeln(format!("return {name}{{Name: name, Value: value}}"));
+            buf.unindent();
+            buf.writeln("}");
+
+            // MarshalJSON.
+            buf.write_block(
+                format!("func (v {name}) MarshalJSON() ([]byte, error)"),
+                |buf| {
+                    buf.writeln("return shimjson.Marshal(map[string]any{");
+                    buf.indent();
+                    buf.writeln("v.Name: v.Value,");
+                    buf.unindent();
+                    buf.writeln("})");
+                },
+            );
+            Ok(())
+        }
+        _ => {
+            buf.start_line();
+            buf.write(format!("type {name} "));
+            render_schema(schemas, buf, Some(name), schema)?;
+            buf.end_line();
+            Ok(())
+        }
+    }
 }
 
 /// For any arrays with item type any (`[]any`), replace the `title` field of
@@ -192,6 +267,7 @@ fn render_schema(
             _description: _,
             _type: _,
             additional_properties,
+            x_turbopuffer_variant_name: _,
             title: _,
         } => {
             buf.write("map[string]");
@@ -302,6 +378,7 @@ fn render_schema(
         OpenApiSchema::String {
             _description: _,
             _type: _,
+            x_turbopuffer_variant_name: _,
             title: _,
         } => buf.write("string"),
         OpenApiSchema::Boolean {

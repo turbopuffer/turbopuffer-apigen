@@ -78,6 +78,13 @@ pub enum OpenApiSchema {
         #[serde(rename = "type")]
         _type: MustBe!("object"),
         additional_properties: Box<OpenApiSchema>,
+        /// When used in an `anyOf` schema, the name to use for the variant (if
+        /// the target language requires variants to be explicitly named). If
+        /// omitted, the name is derived from the `const` value of the inner
+        /// tuple's first prefix item, when the map matches the alias-tuple
+        /// pattern.
+        #[serde(rename = "x-turbopuffer-variant-name")]
+        x_turbopuffer_variant_name: Option<String>,
         #[serde(rename = "title")]
         title: Option<String>,
     },
@@ -124,6 +131,10 @@ pub enum OpenApiSchema {
         _description: Option<String>,
         #[serde(rename = "type")]
         _type: MustBe!("string"),
+        /// When used in an `anyOf` schema, the name to use for the variant (if
+        /// the target language requires variants to be explicitly named).
+        #[serde(rename = "x-turbopuffer-variant-name")]
+        x_turbopuffer_variant_name: Option<String>,
         #[serde(rename = "title")]
         title: Option<String>,
     },

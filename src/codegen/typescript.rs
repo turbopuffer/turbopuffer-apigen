@@ -73,6 +73,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             _description: _,
             _type: _,
             additional_properties,
+            x_turbopuffer_variant_name: _,
             title: _,
         } => {
             buf.write("Record<string, ");
@@ -113,6 +114,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
         OpenApiSchema::String {
             _description: _,
             _type: _,
+            x_turbopuffer_variant_name: _,
             title: _,
         } => buf.write("string"),
         OpenApiSchema::Number {

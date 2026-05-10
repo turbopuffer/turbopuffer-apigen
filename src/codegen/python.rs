@@ -167,6 +167,7 @@ fn render_schema(
             _description: _,
             _type: _,
             additional_properties,
+            x_turbopuffer_variant_name: _,
             title: _,
         } => {
             buf.write("Mapping[str, ");
@@ -208,6 +209,7 @@ fn render_schema(
         OpenApiSchema::String {
             _description: _,
             _type: _,
+            x_turbopuffer_variant_name: _,
             title: _,
         } => buf.write("str"),
         OpenApiSchema::Boolean {

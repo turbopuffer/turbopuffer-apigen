@@ -12,11 +12,22 @@ pub fn extract_any_of_tuples(
     schemas: &mut BTreeMap<String, OpenApiSchema>,
     conflict_behavior: ConflictBehavior,
 ) -> Result<(), Box<dyn Error>> {
-    // Extract named types for any tuples inside of a top-level `anyOf`, and
-    // replace the tuples with references to the new types. We only have limited
-    // support for rendering `anyOf`s in Go and Java, and this gives us a chance
-    // to fall into `render_any_of_refs` when we later attempt to render the
-    // `anyOf`.
+    // Extract named types for any extractable variants inside of a top-level
+    // `anyOf`, and replace the variants with references to the new types. We
+    // only have limited support for rendering `anyOf`s in Go and Java, and this
+    // gives us a chance to fall into `render_any_of_refs` when we later attempt
+    // to render the `anyOf`.
+    //
+    // The following anyOf variants are extracted:
+    //
+    //   - `ArrayTuple` schemas with a single `Const` in `prefixItems`: the
+    //     variant name is derived from `x-turbopuffer-variant-name` or the
+    //     `Const` value.
+    //   - `String` schemas: the variant name must be supplied explicitly via
+    //     `x-turbopuffer-variant-name`.
+    //   - `Map` schemas matching the alias-tuple pattern (`Map<String, [Const,
+    //     attr]>`): the variant name is derived from
+    //     `x-turbopuffer-variant-name` or the inner tuple's `Const` value.
 
     let mut new_schemas = BTreeMap::new();
     for (name, schema) in &mut *schemas {
@@ -37,48 +48,31 @@ pub fn extract_any_of_tuples(
                 });
             }
             for item in any_of {
-                if let OpenApiSchema::ArrayTuple {
-                    prefix_items,
-                    x_turbopuffer_variant_name,
-                    ..
-                } = item
-                {
-                    let mut sconsts = prefix_items.iter().filter_map(|item| match item {
-                        OpenApiSchema::Const { sconst, .. } => Some(sconst),
-                        _ => None,
-                    });
-                    let Some(sconst) = sconsts.next() else {
-                        continue;
-                    };
-                    if sconsts.next().is_some() {
-                        continue;
+                let Some(suffix) = extractable_variant_suffix(item) else {
+                    continue;
+                };
+                let ref_title = format!("{name}{suffix}");
+                let mut name = format!("{name}{suffix}");
+                if conflict_behavior == ConflictBehavior::AppendSuffix {
+                    let mut new_name = name.clone();
+                    let mut counter = 2;
+                    while new_schemas.contains_key(&new_name) {
+                        new_name = format!("{name}{counter}");
+                        counter += 1;
                     }
-                    let ref_title = format!("{name}{sconst}");
-                    let mut name = x_turbopuffer_variant_name
-                        .as_ref()
-                        .map(|variant_name| format!("{name}{variant_name}"))
-                        .unwrap_or_else(|| format!("{name}{sconst}"));
-                    if conflict_behavior == ConflictBehavior::AppendSuffix {
-                        let mut new_name = name.clone();
-                        let mut suffix = 2;
-                        while new_schemas.contains_key(&new_name) {
-                            new_name = format!("{name}{suffix}");
-                            suffix += 1;
-                        }
-                        name = new_name;
-                    }
-                    let item = mem::replace(
-                        item,
-                        OpenApiSchema::Ref {
-                            sref: format!("{SCHEMA_REF_PREFIX}{name}"),
-                            title: Some(ref_title),
-                        },
-                    );
-                    if new_schemas.insert(name.clone(), item).is_some() {
-                        Err(format!(
-                            "extraction on array tuples from anyOf failed: duplicate schema name: {name}"
-                        ))?
-                    }
+                    name = new_name;
+                }
+                let item = mem::replace(
+                    item,
+                    OpenApiSchema::Ref {
+                        sref: format!("{SCHEMA_REF_PREFIX}{name}"),
+                        title: Some(ref_title),
+                    },
+                );
+                if new_schemas.insert(name.clone(), item).is_some() {
+                    Err(format!(
+                        "extraction of variants from anyOf failed: duplicate schema name: {name}"
+                    ))?
                 }
             }
         }
@@ -86,11 +80,54 @@ pub fn extract_any_of_tuples(
     for (name, schema) in new_schemas {
         if schemas.insert(name.clone(), schema).is_some() {
             Err(format!(
-                "extraction on array tuples from anyOf failed: duplicate schema name: {name}"
+                "extraction of variants from anyOf failed: duplicate schema name: {name}"
             ))?
         }
     }
     Ok(())
+}
+
+/// Returns the variant name suffix that should be appended to the parent
+/// `anyOf` schema's name when extracting `schema` to a top-level type.
+///
+/// Returns `None` if the variant is not extractable (e.g., a `Ref`, or an
+/// `ArrayTuple` with no single `Const`).
+fn extractable_variant_suffix(schema: &OpenApiSchema) -> Option<String> {
+    match schema {
+        OpenApiSchema::ArrayTuple {
+            prefix_items,
+            x_turbopuffer_variant_name,
+            ..
+        } => {
+            if let Some(name) = x_turbopuffer_variant_name {
+                return Some(name.clone());
+            }
+            single_const(prefix_items).map(|s| s.to_owned())
+        }
+        OpenApiSchema::String {
+            x_turbopuffer_variant_name,
+            ..
+        } => x_turbopuffer_variant_name.clone(),
+        OpenApiSchema::Map {
+            x_turbopuffer_variant_name,
+            ..
+        } => x_turbopuffer_variant_name.clone(),
+        _ => None,
+    }
+}
+
+/// Returns the value of the only `Const` in `prefix_items`, or `None` if there
+/// is no `Const` or more than one.
+fn single_const(prefix_items: &[OpenApiSchema]) -> Option<&str> {
+    let mut sconsts = prefix_items.iter().filter_map(|item| match item {
+        OpenApiSchema::Const { sconst, .. } => Some(sconst.as_str()),
+        _ => None,
+    });
+    let sconst = sconsts.next()?;
+    if sconsts.next().is_some() {
+        return None;
+    }
+    Some(sconst)
 }
 
 #[derive(Debug, Clone)]
