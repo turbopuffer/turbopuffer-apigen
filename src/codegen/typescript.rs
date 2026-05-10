@@ -1,6 +1,7 @@
+use std::collections::BTreeSet;
 use std::error::Error;
 
-use crate::codegen::{OpenApiSchema, OpenApiSpec};
+use crate::codegen::{OpenApiSchema, OpenApiSpec, SCHEMA_REF_PREFIX};
 use crate::util::codegen_buf::CodegenBuf;
 
 pub fn render(spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
@@ -13,10 +14,12 @@ pub fn render(spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
     }
     buf.writeln("");
 
+    let managed_names: BTreeSet<String> = spec.managed_schemas.keys().cloned().collect();
+
     for (name, schema) in spec.managed_schemas {
         buf.start_line();
-        buf.write(format!("export type {name} = "));
-        render_schema(&mut buf, schema)?;
+        buf.write(format!("export type {name}<T = Record<string, any>> = "));
+        render_schema(&mut buf, schema, &managed_names)?;
         buf.write(";");
         buf.end_line();
     }
@@ -24,7 +27,11 @@ pub fn render(spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
     Ok(buf)
 }
 
-fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<dyn Error>> {
+fn render_schema(
+    buf: &mut CodegenBuf,
+    schema: OpenApiSchema,
+    managed: &BTreeSet<String>,
+) -> Result<(), Box<dyn Error>> {
     match schema {
         OpenApiSchema::AnyOf {
             _description: _,
@@ -43,7 +50,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
                 } else if i > 0 {
                     buf.write(" | ");
                 }
-                render_schema(buf, schema)?;
+                render_schema(buf, schema, managed)?;
             }
             if expanded {
                 buf.unindent();
@@ -65,7 +72,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
                     buf.write(", ");
                 }
                 buf.write(format!("{name}: "));
-                render_schema(buf, schema)?;
+                render_schema(buf, schema, managed)?;
             }
             buf.write(" }")
         }
@@ -77,7 +84,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             title: _,
         } => {
             buf.write("Record<string, ");
-            render_schema(buf, *additional_properties)?;
+            render_schema(buf, *additional_properties, managed)?;
             buf.write(">")
         }
         OpenApiSchema::ArrayList {
@@ -86,7 +93,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             items,
             title: _,
         } => {
-            render_schema(buf, *items)?;
+            render_schema(buf, *items, managed)?;
             buf.write("[]");
         }
         OpenApiSchema::ArrayTuple {
@@ -107,7 +114,7 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
                 if i > 0 {
                     buf.write(", ");
                 }
-                render_schema(buf, schema)?;
+                render_schema(buf, schema, managed)?;
             }
             buf.write("]")
         }
@@ -115,8 +122,14 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             _description: _,
             _type: _,
             x_turbopuffer_variant_name: _,
-            title: _,
-        } => buf.write("string"),
+            title,
+        } => {
+            if title.as_deref() == Some("attr") {
+                buf.write("keyof T & string");
+            } else {
+                buf.write("string");
+            }
+        }
         OpenApiSchema::Number {
             _description: _,
             _type: _,
@@ -133,9 +146,14 @@ fn render_schema(buf: &mut CodegenBuf, schema: OpenApiSchema) -> Result<(), Box<
             sconst,
             title: _,
         } => buf.write(format!("'{sconst}'")),
-        OpenApiSchema::Ref { sref, title: _ } => match sref.strip_prefix("#/components/schemas/") {
+        OpenApiSchema::Ref { sref, title: _ } => match sref.strip_prefix(SCHEMA_REF_PREFIX) {
             None => Err(format!("unsupported reference: {sref}"))?,
-            Some(name) => buf.write(name),
+            Some(name) => {
+                buf.write(name);
+                if managed.contains(name) {
+                    buf.write("<T>");
+                }
+            }
         },
         OpenApiSchema::Any { .. } => buf.write("any"),
     }
