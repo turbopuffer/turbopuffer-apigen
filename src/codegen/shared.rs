@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, error::Error, mem};
 
-use crate::codegen::{OpenApiSchema, SCHEMA_REF_PREFIX};
+use crate::codegen::{OpenApiSchema, SCHEMA_REF_PREFIX, strip_schema_ref_prefix};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConflictBehavior {
@@ -196,6 +196,76 @@ pub fn snake_to_camel_case(input: &str) -> String {
         }
     }
     s
+}
+
+/// For each `anyOf`-of-`$ref` schema, records which variant inherits from
+/// which abstract base. The result maps each variant schema's name to its
+/// enclosing union's name.
+pub fn compute_inherits(
+    schemas: &BTreeMap<String, OpenApiSchema>,
+) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
+    let mut result = BTreeMap::new();
+    for (name, schema) in schemas {
+        let OpenApiSchema::AnyOf { any_of, .. } = schema else {
+            continue;
+        };
+        for item in any_of {
+            let OpenApiSchema::Ref { sref, .. } = item else {
+                continue;
+            };
+            let sref = strip_schema_ref_prefix(sref)?;
+            if let Some(existing) = result.insert(sref.into(), name.into()) {
+                Err(format!(
+                    "duplicate inheritance for {sref}: {existing} and {name}"
+                ))?
+            }
+        }
+    }
+    Ok(result)
+}
+
+/// Rewrites object schemas with a single required field as 1-tuples, returning
+/// a map from each rewritten schema's name to a `pascal -> original` JSON
+/// property-name override map (so emitters that serialize tuples as objects
+/// can recover the original key).
+pub fn rewrite_single_field_objects_to_tuples(
+    schemas: &mut BTreeMap<String, OpenApiSchema>,
+) -> Result<BTreeMap<String, BTreeMap<String, String>>, Box<dyn Error>> {
+    let mut names = BTreeMap::new();
+    for (name, schema) in schemas {
+        let OpenApiSchema::Object {
+            properties,
+            required,
+            ..
+        } = schema
+        else {
+            continue;
+        };
+        if properties.len() != 1 || required.len() != 1 {
+            continue;
+        }
+        let (prop_name, prop_schema) = properties.iter().next().unwrap();
+        if !required.contains(prop_name) {
+            continue;
+        }
+        let prop_name = prop_name.clone();
+        let prop_name_munged = snake_to_camel_case(&prop_name);
+        let mut prop_schema = prop_schema.clone();
+        if let Some(title) = prop_schema.title_mut() {
+            *title = Some(prop_name_munged.clone());
+        }
+        *schema = OpenApiSchema::ArrayTuple {
+            prefix_items: vec![prop_schema],
+            _description: None,
+            _type: Default::default(),
+            additional_items: false,
+            x_turbopuffer_variant_name: None,
+            x_turbopuffer_variant_drop_on_conflict: false,
+            title: None,
+        };
+        names.insert(name.clone(), BTreeMap::from([(prop_name_munged, prop_name)]));
+    }
+    Ok(names)
 }
 
 pub fn camel_to_snake_case(input: &str) -> String {
