@@ -191,6 +191,13 @@ where
         .get(name)
         .map(String::as_str)
         .unwrap_or_default();
+    // Pin the base's converter onto the concrete subtype too. STJ resolves
+    // converters from the static type, and JsonConverterAttribute is not
+    // inherited, so without this the type serializes via default reflection
+    // when used boxed as itself instead of as its abstract base.
+    if !parent.is_empty() {
+        buf.writeln(format!("[JsonConverter(typeof({parent}JsonConverter))]"));
+    }
     buf.start_line();
     buf.write(format!("public sealed class {name}("));
     render_ctor_params(buf)?;
@@ -247,6 +254,12 @@ fn render_array_tuple_class(
 
     // Class declaration with primary constructor. Omit the `()` when there
     // are no parameters so the default ctor is implicit.
+    //
+    // Pin the base's converter onto the concrete subtype (see the comment in
+    // `render_wrapper_class`).
+    if let Some(parent) = parent {
+        buf.writeln(format!("[JsonConverter(typeof({parent}JsonConverter))]"));
+    }
     buf.start_line();
     buf.write(format!("public sealed class {name}"));
     if !normal_fields.is_empty() {
@@ -451,6 +464,7 @@ fn render_any_of_refs(
 
     // Raw variant — one per abstract type so that subtype-typed properties
     // still deserialize into a value that satisfies the declared type.
+    buf.writeln(format!("[JsonConverter(typeof({name}JsonConverter))]"));
     buf.writeln(format!(
         "public sealed class {name}Raw(JsonElement value) : {name}"
     ));
@@ -474,6 +488,15 @@ fn render_any_of_refs(
     ));
     buf.writeln("{");
     buf.indent();
+    // Accept any subtype, not just the abstract base, so this converter can be
+    // pinned onto the concrete subtypes via JsonConverterAttribute.
+    buf.writeln("public override bool CanConvert(Type typeToConvert) =>");
+    buf.indent();
+    buf.writeln(format!(
+        "typeof({name}).IsAssignableFrom(typeToConvert);"
+    ));
+    buf.unindent();
+    buf.writeln("");
     buf.writeln(format!(
         "public override {name} Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>"
     ));
