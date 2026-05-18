@@ -513,9 +513,17 @@ fn render_factory(
                 .collect();
             buf.start_line();
             buf.write(format!("public static {sref} {factory_name}("));
+            let last = normal_fields.len().saturating_sub(1);
             for (i, (prop_name, schema)) in normal_fields.iter().enumerate() {
                 if i > 0 {
                     buf.write(", ");
+                }
+                // A trailing list parameter is emitted as `params T[]` so that
+                // callers can pass the elements variadically (e.g.
+                // `Filter.And(a, b, c)`) as well as as an explicit array. This
+                // is source- and binary-compatible with existing array calls.
+                if i == last && matches!(schema, OpenApiSchema::ArrayList { .. }) {
+                    buf.write("params ");
                 }
                 render_schema_inline(buf, schema)?;
                 buf.write(format!(" {}", camel_case(prop_name)));
@@ -532,7 +540,7 @@ fn render_factory(
         }
         OpenApiSchema::ArrayList { items, .. } => {
             buf.start_line();
-            buf.write(format!("public static {sref} {factory_name}("));
+            buf.write(format!("public static {sref} {factory_name}(params "));
             render_schema_inline(buf, items)?;
             buf.write(format!("[] items) => new {sref}(items);"));
             buf.end_line();
