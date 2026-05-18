@@ -30,7 +30,7 @@ pub fn render(mut spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
     buf.writeln("using System.Text.Json;");
     buf.writeln("using System.Text.Json.Serialization;");
     buf.writeln("");
-    buf.writeln("namespace Turbopuffer.Models.Namespaces;");
+    buf.writeln("namespace Turbopuffer.Client.Models.Namespaces;");
     buf.writeln("");
 
     for (i, (name, schema)) in ctx.schemas.iter().enumerate() {
