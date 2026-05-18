@@ -513,16 +513,18 @@ fn render_factory(
                 .collect();
             buf.start_line();
             buf.write(format!("public static {sref} {factory_name}("));
-            let last = normal_fields.len().saturating_sub(1);
+            // Mirror the Java backend: a list field is emitted variadically
+            // (`params T[]`) only when it is the *sole* normal field, i.e. the
+            // factory's logical argument *is* the list (e.g. `Filter.And`,
+            // `Filter.Or`). Factories like `Filter.In(attr, value)` or
+            // `RankBy.Ann(attr, vector)` have a second normal field, so the
+            // list there is a single payload argument, not a variadic one.
+            let use_params = normal_fields.len() == 1;
             for (i, (prop_name, schema)) in normal_fields.iter().enumerate() {
                 if i > 0 {
                     buf.write(", ");
                 }
-                // A trailing list parameter is emitted as `params T[]` so that
-                // callers can pass the elements variadically (e.g.
-                // `Filter.And(a, b, c)`) as well as as an explicit array. This
-                // is source- and binary-compatible with existing array calls.
-                if i == last && matches!(schema, OpenApiSchema::ArrayList { .. }) {
+                if use_params && matches!(schema, OpenApiSchema::ArrayList { .. }) {
                     buf.write("params ");
                 }
                 render_schema_inline(buf, schema)?;
