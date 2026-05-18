@@ -12,8 +12,10 @@ use crate::{
 pub fn render(mut spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
     shared::extract_any_of_tuples(&mut spec.managed_schemas, ConflictBehavior::AppendSuffix)?;
     let ctx = RenderCtx {
-        inherits: compute_inherits(&spec.managed_schemas)?,
-        objects_as_tuples: rewrite_single_field_objects_to_tuples(&mut spec.managed_schemas)?,
+        inherits: shared::compute_inherits(&spec.managed_schemas)?,
+        objects_as_tuples: shared::rewrite_single_field_objects_to_tuples(
+            &mut spec.managed_schemas,
+        )?,
         schemas: spec.managed_schemas,
     };
 
@@ -56,74 +58,6 @@ struct RenderCtx {
     /// overrides for the fields.
     objects_as_tuples: BTreeMap<String, BTreeMap<String, String>>,
     schemas: BTreeMap<String, OpenApiSchema>,
-}
-
-fn compute_inherits(
-    schemas: &BTreeMap<String, OpenApiSchema>,
-) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
-    let mut result = BTreeMap::new();
-    for (name, schema) in schemas {
-        match schema {
-            OpenApiSchema::AnyOf {
-                _description: _,
-                any_of,
-            } => {
-                for schema in any_of {
-                    if let OpenApiSchema::Ref { sref, .. } = schema {
-                        let sref = strip_schema_ref_prefix(sref)?;
-                        let existing = result.insert(sref.into(), name.into());
-                        if let Some(existing) = existing {
-                            Err(format!(
-                                "duplicate inheritance for {sref}: {existing} and {name}"
-                            ))?
-                        }
-                    }
-                }
-            }
-            _ => (),
-        }
-    }
-    Ok(result)
-}
-
-fn rewrite_single_field_objects_to_tuples(
-    schemas: &mut BTreeMap<String, OpenApiSchema>,
-) -> Result<BTreeMap<String, BTreeMap<String, String>>, Box<dyn Error>> {
-    let mut names = BTreeMap::new();
-    for (name, schema) in schemas {
-        match schema {
-            OpenApiSchema::Object {
-                _description: _,
-                _type: _,
-                properties,
-                required,
-                title: _,
-            } if properties.len() == 1 && required.len() == 1 => {
-                let (prop_name, prop_schema) = properties.into_iter().next().unwrap();
-                if !required.contains(prop_name) {
-                    continue;
-                }
-                let prop_name = prop_name.clone();
-                let prop_name_munged = shared::snake_to_camel_case(&prop_name);
-                if let Some(title) = prop_schema.title_mut() {
-                    *title = Some(prop_name_munged.clone());
-                }
-                *schema = OpenApiSchema::ArrayTuple {
-                    prefix_items: vec![prop_schema.clone()],
-                    _description: None,
-                    _type: Default::default(),
-                    additional_items: false,
-                    x_turbopuffer_variant_name: None,
-                    x_turbopuffer_variant_drop_on_conflict: false,
-                    title: None,
-                };
-                let overrides = BTreeMap::from([(prop_name_munged, prop_name)]);
-                names.insert(name.clone(), overrides);
-            }
-            _ => (),
-        }
-    }
-    Ok(names)
 }
 
 fn render_schema_top_level(
