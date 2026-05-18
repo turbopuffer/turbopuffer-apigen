@@ -6,6 +6,7 @@ use std::{
 use monostate::MustBe;
 use serde::Deserialize;
 
+pub mod csharp;
 pub mod go;
 pub mod java;
 pub mod python;

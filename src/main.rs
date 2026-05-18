@@ -23,6 +23,7 @@ pub enum Language {
     Go,
     Typescript,
     Java,
+    CSharp,
 }
 
 impl fmt::Display for Language {
@@ -32,6 +33,7 @@ impl fmt::Display for Language {
             Language::Go => write!(f, "go"),
             Language::Typescript => write!(f, "typescript"),
             Language::Java => write!(f, "java"),
+            Language::CSharp => write!(f, "csharp"),
         }
     }
 }
@@ -78,6 +80,7 @@ pub fn run(language: Language) -> Result<(), Box<dyn Error>> {
         Language::Java => codegen::java::render(openapi_spec)?,
         Language::Python => codegen::python::render(openapi_spec)?,
         Language::Typescript => codegen::typescript::render(openapi_spec)?,
+        Language::CSharp => codegen::csharp::render(openapi_spec)?,
     };
 
     print!("{}", content.into_string());
