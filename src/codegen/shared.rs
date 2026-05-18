@@ -263,7 +263,10 @@ pub fn rewrite_single_field_objects_to_tuples(
             x_turbopuffer_variant_drop_on_conflict: false,
             title: None,
         };
-        names.insert(name.clone(), BTreeMap::from([(prop_name_munged, prop_name)]));
+        names.insert(
+            name.clone(),
+            BTreeMap::from([(prop_name_munged, prop_name)]),
+        );
     }
     Ok(names)
 }

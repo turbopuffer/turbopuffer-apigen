@@ -76,63 +76,87 @@ fn render_schema_top_level(
             }
         }
         OpenApiSchema::ArrayList { items, .. } => {
-            render_wrapper_class(ctx, buf, name, |buf| {
-                buf.start_line();
-                buf.write("public ");
-                render_schema_inline(buf, items)?;
-                buf.write("[] Items { get; } = items;");
-                buf.end_line();
-                Ok(())
-            }, |buf| {
-                render_schema_inline(buf, items)?;
-                buf.write("[] items");
-                Ok(())
-            }, |buf| {
-                buf.writeln("writer.WriteStartArray();");
-                buf.writeln("foreach (var item in this.Items)");
-                buf.writeln("{");
-                buf.indent();
-                buf.writeln("JsonSerializer.Serialize(writer, item, options);");
-                buf.unindent();
-                buf.writeln("}");
-                buf.writeln("writer.WriteEndArray();");
-                Ok(())
-            })?;
+            render_wrapper_class(
+                ctx,
+                buf,
+                name,
+                |buf| {
+                    buf.start_line();
+                    buf.write("public ");
+                    render_schema_inline(buf, items)?;
+                    buf.write("[] Items { get; } = items;");
+                    buf.end_line();
+                    Ok(())
+                },
+                |buf| {
+                    render_schema_inline(buf, items)?;
+                    buf.write("[] items");
+                    Ok(())
+                },
+                |buf| {
+                    buf.writeln("writer.WriteStartArray();");
+                    buf.writeln("foreach (var item in this.Items)");
+                    buf.writeln("{");
+                    buf.indent();
+                    buf.writeln("JsonSerializer.Serialize(writer, item, options);");
+                    buf.unindent();
+                    buf.writeln("}");
+                    buf.writeln("writer.WriteEndArray();");
+                    Ok(())
+                },
+            )?;
         }
         OpenApiSchema::String { .. } => {
-            render_wrapper_class(ctx, buf, name, |buf| {
-                buf.writeln("public string Value { get; } = value;");
-                Ok(())
-            }, |buf| {
-                buf.write("string value");
-                Ok(())
-            }, |buf| {
-                buf.writeln("writer.WriteStringValue(this.Value);");
-                Ok(())
-            })?;
+            render_wrapper_class(
+                ctx,
+                buf,
+                name,
+                |buf| {
+                    buf.writeln("public string Value { get; } = value;");
+                    Ok(())
+                },
+                |buf| {
+                    buf.write("string value");
+                    Ok(())
+                },
+                |buf| {
+                    buf.writeln("writer.WriteStringValue(this.Value);");
+                    Ok(())
+                },
+            )?;
         }
-        OpenApiSchema::Map { additional_properties, .. } => {
+        OpenApiSchema::Map {
+            additional_properties,
+            ..
+        } => {
             let value_schema = &**additional_properties;
-            render_wrapper_class(ctx, buf, name, |buf| {
-                buf.writeln("public string Name { get; } = name;");
-                buf.start_line();
-                buf.write("public ");
-                render_schema_inline(buf, value_schema)?;
-                buf.write(" Value { get; } = value;");
-                buf.end_line();
-                Ok(())
-            }, |buf| {
-                buf.write("string name, ");
-                render_schema_inline(buf, value_schema)?;
-                buf.write(" value");
-                Ok(())
-            }, |buf| {
-                buf.writeln("writer.WriteStartObject();");
-                buf.writeln("writer.WritePropertyName(this.Name);");
-                buf.writeln("JsonSerializer.Serialize(writer, this.Value, options);");
-                buf.writeln("writer.WriteEndObject();");
-                Ok(())
-            })?;
+            render_wrapper_class(
+                ctx,
+                buf,
+                name,
+                |buf| {
+                    buf.writeln("public string Name { get; } = name;");
+                    buf.start_line();
+                    buf.write("public ");
+                    render_schema_inline(buf, value_schema)?;
+                    buf.write(" Value { get; } = value;");
+                    buf.end_line();
+                    Ok(())
+                },
+                |buf| {
+                    buf.write("string name, ");
+                    render_schema_inline(buf, value_schema)?;
+                    buf.write(" value");
+                    Ok(())
+                },
+                |buf| {
+                    buf.writeln("writer.WriteStartObject();");
+                    buf.writeln("writer.WritePropertyName(this.Name);");
+                    buf.writeln("JsonSerializer.Serialize(writer, this.Value, options);");
+                    buf.writeln("writer.WriteEndObject();");
+                    Ok(())
+                },
+            )?;
         }
         OpenApiSchema::ArrayTuple {
             additional_items: true,
@@ -275,7 +299,9 @@ fn render_array_tuple_class(
                 TupleField::Const(sconst) => {
                     buf.writeln(format!("writer.WriteStringValue(\"{sconst}\");"));
                 }
-                TupleField::Normal { name: prop_name, .. } => {
+                TupleField::Normal {
+                    name: prop_name, ..
+                } => {
                     if let Some(overrides) = json_overrides {
                         let json_name = overrides
                             .get(prop_name)
@@ -313,15 +339,12 @@ fn render_any_of_const_enum(
     let entries: Vec<_> = schema
         .iter()
         .map(|item| {
-            let OpenApiSchema::Const {
-                title,
-                sconst,
-                ..
-            } = item
-            else {
+            let OpenApiSchema::Const { title, sconst, .. } = item else {
                 unreachable!("validated by caller");
             };
-            let member = title.clone().unwrap_or_else(|| sconst_to_screaming_snake(sconst));
+            let member = title
+                .clone()
+                .unwrap_or_else(|| sconst_to_screaming_snake(sconst));
             (member, sconst.clone())
         })
         .collect();
@@ -537,7 +560,10 @@ fn render_factory(
     Ok(())
 }
 
-fn render_schema_inline(buf: &mut CodegenBuf, schema: &OpenApiSchema) -> Result<(), Box<dyn Error>> {
+fn render_schema_inline(
+    buf: &mut CodegenBuf,
+    schema: &OpenApiSchema,
+) -> Result<(), Box<dyn Error>> {
     match schema {
         OpenApiSchema::AnyOf { .. } => buf.write("object"),
         OpenApiSchema::Object { .. } => Err("inline object schemas unsupported")?,
