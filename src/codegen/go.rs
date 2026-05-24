@@ -108,77 +108,21 @@ fn render_schema_top_level(
     }
 }
 
-/// For any arrays with item type any (`[]any`), replace the `title` field of
-/// with a generic type name. Using generic arrays (`[]T`) is more ergonomic
-/// than using `[]any`, because the former does not require manually casting
-/// every type in the array to `[]any`.
-///
-/// Returns the generic syntax to inject.
-fn assign_generics(schemas: &mut [OpenApiSchema]) -> (String, String) {
-    // Add more letters if necessary. But the odds of actually needing more than
-    // 7 generic parameters are miniscule.
-    const GENERICS: &[&str] = &["T", "U", "V", "W", "X", "Y", "Z"];
-
-    fn assign(index: &mut usize, schema: &mut OpenApiSchema) {
-        match schema {
-            OpenApiSchema::AnyOf { any_of, .. } => {
-                for item in any_of {
-                    assign(index, item);
-                }
-            }
-            OpenApiSchema::Object { properties, .. } => {
-                for (_, prop_schema) in properties {
-                    assign(index, prop_schema);
-                }
-            }
-            OpenApiSchema::Map {
-                additional_properties,
-                ..
-            } => {
-                assign(index, additional_properties);
-            }
-            OpenApiSchema::ArrayList {
-                items, description, ..
-            } => {
-                if let OpenApiSchema::Any { .. } = &**items {
-                    // NOTE(benesch): it's a bit of a hack to jam this into the
-                    // `description` field, but it's very convenient.
-                    *description = Some(format!("#GEN:{}", GENERICS[*index]));
-                    *index += 1;
-                } else {
-                    assign(index, items);
-                }
-            }
-            OpenApiSchema::ArrayTuple { prefix_items, .. } => {
-                for item in prefix_items {
-                    assign(index, item);
-                }
-            }
-            OpenApiSchema::String { .. }
-            | OpenApiSchema::Number { .. }
-            | OpenApiSchema::Boolean { .. }
-            | OpenApiSchema::Const { .. }
-            | OpenApiSchema::Ref { .. }
-            | OpenApiSchema::Any { .. } => {}
-        }
-    }
-
-    let mut index = 0;
-    for schema in schemas {
-        assign(&mut index, schema);
-    }
-    if index > 0 {
-        let generic_decl = (0..index)
-            .map(|i| format!("{} any", GENERICS[i]))
-            .collect::<Vec<_>>();
-        let generic_inst = (0..index)
-            .map(|i| format!("{}", GENERICS[i]))
-            .collect::<Vec<_>>();
-        let generic_decl = format!("[{}]", generic_decl.join(", "));
-        let generic_inst = format!("[{}]", generic_inst.join(", "));
-        (generic_decl, generic_inst)
-    } else {
+/// Formats the list of generics returned by [`shared::assign_generics`] as
+/// the `[T any, ...]` declaration and `[T, ...]` instantiation suffixes that
+/// Go splices into struct, function, and method signatures. Returns
+/// `("", "")` when no generics were assigned.
+fn format_generics(generics: &[&str]) -> (String, String) {
+    if generics.is_empty() {
         (String::new(), String::new())
+    } else {
+        let decl = generics
+            .iter()
+            .map(|g| format!("{g} any"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let inst = generics.join(", ");
+        (format!("[{decl}]"), format!("[{inst}]"))
     }
 }
 
@@ -281,7 +225,7 @@ fn render_schema(
             title: _,
         } => {
             buf.write("[]");
-            if let Some(generic) = description.as_ref().and_then(|d| d.strip_prefix("#GEN:")) {
+            if let Some(generic) = shared::array_list_generic(description) {
                 buf.write(generic);
             } else {
                 render_schema(schemas, buf, None, &*items)?;
@@ -310,7 +254,8 @@ fn render_schema(
             };
 
             let mut prefix_items = prefix_items.clone();
-            let (generic_decl, generic_inst) = assign_generics(&mut prefix_items);
+            let (generic_decl, generic_inst) =
+                format_generics(&shared::assign_generics(&mut prefix_items));
 
             let fields = shared::build_tuple_fields(&prefix_items);
             let fields_no_consts = fields
@@ -500,7 +445,8 @@ fn render_any_of_refs(
                     render(schemas, buf, fn_name, any_of)?;
                 }
                 schema => {
-                    let (_generic_decl, generic_inst) = assign_generics(&mut [schema.clone()]);
+                    let (_generic_decl, generic_inst) =
+                        format_generics(&shared::assign_generics(&mut [schema.clone()]));
                     buf.writeln(format!("func (v {sref}{generic_inst}) {fn_name}() {{}}"))
                 }
             }

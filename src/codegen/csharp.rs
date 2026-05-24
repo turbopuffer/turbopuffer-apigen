@@ -53,6 +53,17 @@ struct RenderCtx {
     schemas: BTreeMap<String, OpenApiSchema>,
 }
 
+/// Formats the list of generics returned by [`shared::assign_generics`] as the
+/// `<T, U, ...>` suffix that C# splices after both the class name and the
+/// factory method name. Empty string when no generics were assigned.
+fn format_generics(generics: &[&str]) -> String {
+    if generics.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", generics.join(", "))
+    }
+}
+
 fn render_schema_top_level(
     ctx: &RenderCtx,
     buf: &mut CodegenBuf,
@@ -238,7 +249,13 @@ fn render_array_tuple_class(
     name: &str,
     prefix_items: &[OpenApiSchema],
 ) -> Result<(), Box<dyn Error>> {
-    let fields = shared::build_tuple_fields(prefix_items);
+    // Replace `object[]`-typed (i.e. `items: any`) list fields with generic
+    // type parameters `T[]`, `U[]`, ... so callers can pass strongly-typed
+    // arrays without per-element casts to `object`.
+    let mut prefix_items = prefix_items.to_vec();
+    let generics = format_generics(&shared::assign_generics(&mut prefix_items));
+
+    let fields = shared::build_tuple_fields(&prefix_items);
     let parent = ctx.inherits.get(name);
     let parent_factory_names = parent
         .map(|p| collect_factory_names(ctx, p))
@@ -261,7 +278,7 @@ fn render_array_tuple_class(
         buf.writeln(format!("[JsonConverter(typeof({parent}JsonConverter))]"));
     }
     buf.start_line();
-    buf.write(format!("public sealed class {name}"));
+    buf.write(format!("public sealed class {name}{generics}"));
     if !normal_fields.is_empty() {
         buf.write("(");
         for (i, (prop_name, schema)) in normal_fields.iter().enumerate() {
@@ -526,7 +543,9 @@ fn render_factory(
 ) -> Result<(), Box<dyn Error>> {
     match &ctx.schemas[sref] {
         OpenApiSchema::ArrayTuple { prefix_items, .. } => {
-            let fields = shared::build_tuple_fields(prefix_items);
+            let mut prefix_items = prefix_items.clone();
+            let generics = format_generics(&shared::assign_generics(&mut prefix_items));
+            let fields = shared::build_tuple_fields(&prefix_items);
             let normal_fields: Vec<_> = fields
                 .iter()
                 .filter_map(|f| match f {
@@ -535,7 +554,9 @@ fn render_factory(
                 })
                 .collect();
             buf.start_line();
-            buf.write(format!("public static {sref} {factory_name}("));
+            buf.write(format!(
+                "public static {sref}{generics} {factory_name}{generics}("
+            ));
             // Mirror the Java backend: a list field is emitted variadically
             // (`params T[]`) only when it is the *sole* normal field, i.e. the
             // factory's logical argument *is* the list (e.g. `Filter.And`,
@@ -558,16 +579,25 @@ fn render_factory(
                     // `T[]` interchangeably. The constructor still stores
                     // `T[]` (materialized below) so the value is safe to
                     // re-serialize across SDK retries.
-                    (false, OpenApiSchema::ArrayList { items, .. }) => {
+                    (
+                        false,
+                        OpenApiSchema::ArrayList {
+                            items, description, ..
+                        },
+                    ) => {
                         buf.write("System.Collections.Generic.IEnumerable<");
-                        render_schema_inline(buf, items)?;
+                        if let Some(generic) = shared::array_list_generic(description) {
+                            buf.write(generic);
+                        } else {
+                            render_schema_inline(buf, items)?;
+                        }
                         buf.write(">");
                     }
                     _ => render_schema_inline(buf, schema)?,
                 }
                 buf.write(format!(" {}", camel_case(prop_name)));
             }
-            buf.write(format!(") => new {sref}("));
+            buf.write(format!(") => new {sref}{generics}("));
             for (i, (prop_name, schema)) in normal_fields.iter().enumerate() {
                 if i > 0 {
                     buf.write(", ");
@@ -627,8 +657,14 @@ fn render_schema_inline(
             render_schema_inline(buf, additional_properties)?;
             buf.write(">");
         }
-        OpenApiSchema::ArrayList { items, .. } => {
-            render_schema_inline(buf, items)?;
+        OpenApiSchema::ArrayList {
+            items, description, ..
+        } => {
+            if let Some(generic) = shared::array_list_generic(description) {
+                buf.write(generic);
+            } else {
+                render_schema_inline(buf, items)?;
+            }
             buf.write("[]");
         }
         OpenApiSchema::ArrayTuple { .. } => Err("inline array tuple unsupported")?,

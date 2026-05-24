@@ -285,3 +285,77 @@ pub fn camel_to_snake_case(input: &str) -> String {
     }
     s
 }
+
+/// Walks `schemas` and assigns a generic type parameter (`T`, `U`, `V`, ...) to
+/// every `items: any` array. The assignment is stashed in the `ArrayList`'s
+/// `description` field as `#GEN:T`; callers extract it later via
+/// [`array_list_generic`] when rendering the list element type.
+///
+/// Returns the generic letter names that were assigned, in order, so the
+/// caller can format the decl/inst suffix in the target language (e.g. `<T,
+/// U>` for C#/Kotlin, `[T any, U any]`/`[T, U]` for Go).
+pub fn assign_generics(schemas: &mut [OpenApiSchema]) -> Vec<&'static str> {
+    // Add more letters if necessary. But the odds of actually needing more
+    // than 7 generic parameters are minuscule.
+    const GENERICS: &[&str] = &["T", "U", "V", "W", "X", "Y", "Z"];
+
+    fn assign(index: &mut usize, schema: &mut OpenApiSchema) {
+        match schema {
+            OpenApiSchema::AnyOf { any_of, .. } => {
+                for item in any_of {
+                    assign(index, item);
+                }
+            }
+            OpenApiSchema::Object { properties, .. } => {
+                for (_, prop_schema) in properties {
+                    assign(index, prop_schema);
+                }
+            }
+            OpenApiSchema::Map {
+                additional_properties,
+                ..
+            } => {
+                assign(index, additional_properties);
+            }
+            OpenApiSchema::ArrayList {
+                items, description, ..
+            } => {
+                if let OpenApiSchema::Any { .. } = &**items {
+                    // NOTE: it's a bit of a hack to jam this into the
+                    // `description` field, but it's very convenient.
+                    *description = Some(format!("{GENERIC_DESCRIPTION_PREFIX}{}", GENERICS[*index]));
+                    *index += 1;
+                } else {
+                    assign(index, items);
+                }
+            }
+            OpenApiSchema::ArrayTuple { prefix_items, .. } => {
+                for item in prefix_items {
+                    assign(index, item);
+                }
+            }
+            OpenApiSchema::String { .. }
+            | OpenApiSchema::Number { .. }
+            | OpenApiSchema::Boolean { .. }
+            | OpenApiSchema::Const { .. }
+            | OpenApiSchema::Ref { .. }
+            | OpenApiSchema::Any { .. } => {}
+        }
+    }
+
+    let mut index = 0;
+    for schema in schemas {
+        assign(&mut index, schema);
+    }
+    GENERICS[..index].to_vec()
+}
+
+/// Returns the generic letter name (`"T"`, `"U"`, ...) stashed on an
+/// `ArrayList`'s `description` by [`assign_generics`], if any.
+pub fn array_list_generic(description: &Option<String>) -> Option<&str> {
+    description
+        .as_ref()
+        .and_then(|d| d.strip_prefix(GENERIC_DESCRIPTION_PREFIX))
+}
+
+const GENERIC_DESCRIPTION_PREFIX: &str = "#GEN:";
