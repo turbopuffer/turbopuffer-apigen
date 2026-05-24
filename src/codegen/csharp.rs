@@ -547,18 +547,37 @@ fn render_factory(
                 if i > 0 {
                     buf.write(", ");
                 }
-                if use_params && matches!(schema, OpenApiSchema::ArrayList { .. }) {
-                    buf.write("params ");
+                match (use_params, schema) {
+                    (true, OpenApiSchema::ArrayList { .. }) => {
+                        buf.write("params ");
+                        render_schema_inline(buf, schema)?;
+                    }
+                    // For non-variadic list payloads (e.g. `RankBy.Ann(attr,
+                    // value)`, `Filter.In(attr, value)`), accept any
+                    // `IEnumerable<T>` so callers can pass a `List<T>` or
+                    // `T[]` interchangeably. The constructor still stores
+                    // `T[]` (materialized below) so the value is safe to
+                    // re-serialize across SDK retries.
+                    (false, OpenApiSchema::ArrayList { items, .. }) => {
+                        buf.write("System.Collections.Generic.IEnumerable<");
+                        render_schema_inline(buf, items)?;
+                        buf.write(">");
+                    }
+                    _ => render_schema_inline(buf, schema)?,
                 }
-                render_schema_inline(buf, schema)?;
                 buf.write(format!(" {}", camel_case(prop_name)));
             }
             buf.write(format!(") => new {sref}("));
-            for (i, (prop_name, _)) in normal_fields.iter().enumerate() {
+            for (i, (prop_name, schema)) in normal_fields.iter().enumerate() {
                 if i > 0 {
                     buf.write(", ");
                 }
-                buf.write(camel_case(prop_name));
+                let arg = camel_case(prop_name);
+                if !use_params && matches!(schema, OpenApiSchema::ArrayList { .. }) {
+                    buf.write(format!("System.Linq.Enumerable.ToArray({arg})"));
+                } else {
+                    buf.write(arg);
+                }
             }
             buf.write(");");
             buf.end_line();
