@@ -509,9 +509,7 @@ fn render_any_of_refs(
     // pinned onto the concrete subtypes via JsonConverterAttribute.
     buf.writeln("public override bool CanConvert(Type typeToConvert) =>");
     buf.indent();
-    buf.writeln(format!(
-        "typeof({name}).IsAssignableFrom(typeToConvert);"
-    ));
+    buf.writeln(format!("typeof({name}).IsAssignableFrom(typeToConvert);"));
     buf.unindent();
     buf.writeln("");
     buf.writeln(format!(
