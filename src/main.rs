@@ -8,7 +8,14 @@ use crate::codegen::OpenApiSpec;
 mod codegen;
 mod util;
 
-const TYPE_PREFIXES: &[&str] = &["Aggregate", "Expr", "Filter", "GroupBy", "RankBy"];
+const TYPE_PREFIXES: &[&str] = &[
+    "Aggregate",
+    "Expr",
+    "Filter",
+    "GroupBy",
+    "RankBy",
+    "RerankBy",
+];
 
 #[derive(Parser)]
 struct Args {
