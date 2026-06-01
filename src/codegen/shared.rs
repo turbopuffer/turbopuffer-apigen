@@ -323,7 +323,8 @@ pub fn assign_generics(schemas: &mut [OpenApiSchema]) -> Vec<&'static str> {
                 if let OpenApiSchema::Any { .. } = &**items {
                     // NOTE: it's a bit of a hack to jam this into the
                     // `description` field, but it's very convenient.
-                    *description = Some(format!("{GENERIC_DESCRIPTION_PREFIX}{}", GENERICS[*index]));
+                    *description =
+                        Some(format!("{GENERIC_DESCRIPTION_PREFIX}{}", GENERICS[*index]));
                     *index += 1;
                 } else {
                     assign(index, items);
