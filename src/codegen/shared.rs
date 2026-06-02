@@ -29,6 +29,8 @@ pub fn extract_any_of_tuples(
     //     attr]>`): the variant name is derived from
     //     `x-turbopuffer-variant-name` or the inner tuple's `Const` value.
 
+    let schemas_snapshot = schemas.clone();
+
     let mut new_schemas = BTreeMap::new();
     for (name, schema) in &mut *schemas {
         if let OpenApiSchema::AnyOf {
@@ -48,6 +50,23 @@ pub fn extract_any_of_tuples(
                 });
             }
             for item in any_of {
+                // If referencing an ArrayTuple with a single Const, use the
+                // const value as the title, so we can collapse Java overloads
+                // using the same logic as if the variant had been inlined.
+                if let OpenApiSchema::Ref { sref, title } = item {
+                    if title.is_none() {
+                        if let Some(target) = sref.strip_prefix(SCHEMA_REF_PREFIX) {
+                            if let Some(OpenApiSchema::ArrayTuple { prefix_items, .. }) =
+                                schemas_snapshot.get(target)
+                            {
+                                if let Some(sconst) = single_const(prefix_items) {
+                                    *title = Some(format!("{name}{}", normalize_const(sconst)));
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
                 // Pick a `title_suffix` (drives the generated factory function
                 // name) and a `name_suffix` (drives the extracted schema's
                 // identifier). Keeping them separate lets siblings discriminated
@@ -64,7 +83,7 @@ pub fn extract_any_of_tuples(
                         let Some(sconst) = single_const(prefix_items) else {
                             continue;
                         };
-                        let title = sconst.to_owned();
+                        let title = normalize_const(sconst);
                         let name = x_turbopuffer_variant_name
                             .clone()
                             .unwrap_or_else(|| title.clone());
@@ -180,6 +199,30 @@ pub fn lower_camel_case(input: &str) -> String {
     }
     s.extend(chars);
     s
+}
+
+fn normalize_const(sconst: &str) -> String {
+    // Annoying special cases.
+    match sconst {
+        "kNN" => return "Knn".to_owned(),
+        "IGlob" => return "IGlob".to_owned(),
+        "NotIGlob" => return "NotIGlob".to_owned(),
+        // This really ought to be "Bm25", but for historical reasons it's not.
+        "BM25" => return "BM25".to_owned(),
+        _ => (),
+    }
+
+    let mut out = String::new();
+    let mut prev_upper = false;
+    for c in sconst.chars() {
+        if c.is_ascii_uppercase() && prev_upper {
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+        prev_upper = c.is_ascii_uppercase();
+    }
+    out
 }
 
 pub fn snake_to_camel_case(input: &str) -> String {
