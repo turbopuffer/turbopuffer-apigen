@@ -10,6 +10,7 @@ mod util;
 
 const TYPE_PREFIXES: &[&str] = &[
     "Aggregate",
+    "ComputeAttribute",
     "Expr",
     "Filter",
     "GroupBy",
