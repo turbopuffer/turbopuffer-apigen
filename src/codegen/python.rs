@@ -15,17 +15,24 @@ pub fn render(spec: OpenApiSpec) -> Result<CodegenBuf, Box<dyn Error>> {
     buf.writeln("from typing import Any, Tuple, Union, Literal, Mapping, Sequence, TypedDict");
     buf.writeln("");
 
+    // Names available for bare (unquoted) references: unmanaged schemas are
+    // imported up front, and managed schemas become available as they are
+    // emitted. Anything not yet defined must be quoted as a forward reference.
+    let mut defined: HashSet<String> = HashSet::new();
+
     for name in unmanaged_schemas {
         let module_name = shared::camel_to_snake_case(&name);
         buf.writeln(format!("from .{module_name} import {name}"));
+        defined.insert(name);
     }
     buf.writeln("");
 
     for (name, schema) in managed_schemas {
         buf.start_line();
         buf.write(format!("{name} = "));
-        render_schema(&mut buf, &name, schema)?;
+        render_schema(&mut buf, &name, &defined, schema)?;
         buf.end_line();
+        defined.insert(name);
     }
 
     Ok(buf)
@@ -105,6 +112,7 @@ fn topological_sort(
 fn render_schema(
     buf: &mut CodegenBuf,
     name: &str,
+    defined: &HashSet<String>,
     schema: OpenApiSchema,
 ) -> Result<(), Box<dyn Error>> {
     match schema {
@@ -130,7 +138,7 @@ fn render_schema(
                         buf.write(", ");
                     }
                 }
-                render_schema(buf, name, schema)?;
+                render_schema(buf, name, defined, schema)?;
                 if expanded {
                     buf.write(",");
                     buf.end_line();
@@ -159,7 +167,7 @@ fn render_schema(
                     buf.write(", ");
                 }
                 buf.write(format!("\"{name}\": "));
-                render_schema(buf, &name, schema)?;
+                render_schema(buf, &name, defined, schema)?;
             }
             buf.write("})")
         }
@@ -172,7 +180,7 @@ fn render_schema(
             title: _,
         } => {
             buf.write("Mapping[str, ");
-            render_schema(buf, name, *additional_properties)?;
+            render_schema(buf, name, defined, *additional_properties)?;
             buf.write("]")
         }
         OpenApiSchema::ArrayList {
@@ -182,7 +190,7 @@ fn render_schema(
             title: _,
         } => {
             buf.write("Sequence[");
-            render_schema(buf, name, *items)?;
+            render_schema(buf, name, defined, *items)?;
             buf.write("]")
         }
         OpenApiSchema::ArrayTuple {
@@ -203,7 +211,7 @@ fn render_schema(
                 if i > 0 {
                     buf.write(", ");
                 }
-                render_schema(buf, name, schema)?;
+                render_schema(buf, name, defined, schema)?;
             }
             buf.write("]")
         }
@@ -231,9 +239,11 @@ fn render_schema(
         } => buf.write(format!("Literal[\"{sconst}\"]")),
         OpenApiSchema::Ref { sref, title: _ } => {
             let ref_name = strip_schema_ref_prefix(&sref)?;
-            if ref_name == name {
-                // Recursive references (i.e., references to the name we're
-                // currently defining) need to be quoted.
+            if !defined.contains(ref_name) {
+                // Forward references (including the name we're currently
+                // defining) are not yet bound, so they must be quoted. This
+                // happens with mutually recursive unions the topological sort
+                // cannot linearize (e.g. Expr <-> RankBy).
                 buf.write(format!("\"{ref_name}\""))
             } else {
                 buf.write(ref_name)
