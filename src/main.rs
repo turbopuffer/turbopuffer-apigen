@@ -63,14 +63,15 @@ fn main() {
 pub fn run(language: Language) -> Result<(), Box<dyn Error>> {
     log!("generating code for {}", language);
 
-    log!("reading Stainless stats file");
-    let stats_content = fs::read_to_string(".stats.yml")?;
-    let stainless_stats: StainlessStats = serde_yaml::from_str(&stats_content)?;
-
     let openapi_yaml = if let Ok(spec_file_path) = std::env::var("SPEC_FILE_PATH") {
         log!("reading OpenAPI spec from local file: {}", spec_file_path);
         fs::read_to_string(&spec_file_path)?
     } else {
+        // stlc-generated SDKs no longer record the spec URL here, so they must
+        // pass SPEC_FILE_PATH instead.
+        log!("reading Stainless stats file");
+        let stats_content = fs::read_to_string(".stats.yml")?;
+        let stainless_stats: StainlessStats = serde_yaml::from_str(&stats_content)?;
         log!(
             "discovered OpenAPI spec url: {}",
             stainless_stats.openapi_spec_url
