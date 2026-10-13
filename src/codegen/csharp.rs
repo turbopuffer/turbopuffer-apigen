@@ -176,6 +176,28 @@ fn render_schema_top_level(
         OpenApiSchema::ArrayTuple { prefix_items, .. } => {
             render_array_tuple_class(ctx, buf, name, prefix_items)?;
         }
+        OpenApiSchema::Ref { sref, .. } => {
+            // Top-level refs are `anyOf` variants wrapping a type that apigen
+            // doesn't generate. They serialize transparently as that value.
+            let inner = strip_schema_ref_prefix(sref)?;
+            render_wrapper_class(
+                ctx,
+                buf,
+                name,
+                |buf| {
+                    buf.writeln(format!("public {inner} Value {{ get; }} = value;"));
+                    Ok(())
+                },
+                |buf| {
+                    buf.write(format!("{inner} value"));
+                    Ok(())
+                },
+                |buf| {
+                    buf.writeln("JsonSerializer.Serialize(writer, this.Value, options);");
+                    Ok(())
+                },
+            )?;
+        }
         OpenApiSchema::Object { .. } => Err("object schemas in top-level unsupported")?,
         _ => Err("schema type not supported at top level")?,
     }
@@ -466,7 +488,7 @@ fn render_any_of_refs(
 
     // Factory methods.
     for item in schema {
-        let OpenApiSchema::Ref { sref, title } = item else {
+        let OpenApiSchema::Ref { sref, title, .. } = item else {
             unreachable!("validated by caller");
         };
         let sref = strip_schema_ref_prefix(sref)?;
@@ -622,6 +644,12 @@ fn render_factory(
                 "public static {sref} {factory_name}(string value) => new {sref}(value);"
             ));
         }
+        OpenApiSchema::Ref { sref: inner, .. } => {
+            let inner = strip_schema_ref_prefix(inner)?;
+            buf.writeln(format!(
+                "public static {sref} {factory_name}({inner} value) => new {sref}(value);"
+            ));
+        }
         OpenApiSchema::Map {
             additional_properties,
             ..
@@ -692,7 +720,7 @@ fn collect_factory_names(ctx: &RenderCtx, name: &str) -> BTreeSet<String> {
     while let Some(cur) = current {
         if let Some(OpenApiSchema::AnyOf { any_of, .. }) = ctx.schemas.get(cur) {
             for item in any_of {
-                let OpenApiSchema::Ref { sref, title } = item else {
+                let OpenApiSchema::Ref { sref, title, .. } = item else {
                     continue;
                 };
                 let Ok(sref) = strip_schema_ref_prefix(sref) else {

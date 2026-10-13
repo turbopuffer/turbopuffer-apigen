@@ -179,6 +179,37 @@ fn render_schema_top_level(
             buf.writeln("}");
             Ok(())
         }
+        OpenApiSchema::Ref { sref, .. } => {
+            // Top-level refs are `anyOf` variants wrapping a type that apigen
+            // doesn't generate. They become wrapper classes that serialize
+            // transparently as the wrapped value via `@JsonValue`.
+            let inner = strip_schema_ref_prefix(sref)?;
+            buf.start_line();
+            buf.write(format!("class {name} private constructor(value: {inner})"));
+            if let Some(inherits) = ctx.inherits.get(name) {
+                buf.write(format!(" : {inherits}()"));
+            }
+            buf.write(" {");
+            buf.end_line();
+
+            buf.indent();
+            buf.writeln("@JsonValueAnnotation");
+            buf.writeln(format!("private val value: {inner} = value"));
+            buf.write_block("override fun toString(): String", |buf| {
+                buf.writeln("return jsonMapper.writeValueAsString(value)");
+            });
+            buf.unindent();
+
+            buf.write_block("companion object", |buf| {
+                buf.writeln("@JvmSynthetic");
+                buf.writeln(format!(
+                    "internal fun create(value: {inner}): {name} = {name}(value)"
+                ));
+            });
+
+            buf.writeln("}");
+            Ok(())
+        }
         _ => render_schema(ctx, buf, name, schema),
     }
 }
@@ -385,7 +416,7 @@ fn render_schema(
             sconst: _,
             title: _,
         } => Err("const in unsupported position")?,
-        OpenApiSchema::Ref { sref, title: _ } => {
+        OpenApiSchema::Ref { sref, .. } => {
             let name = strip_schema_ref_prefix(sref)?;
             buf.write(name)
         }
@@ -459,7 +490,7 @@ fn render_any_of_refs(
     buf.write_block(&class_decl, |buf| {
         buf.write_block("companion object", |buf| {
             for item in schema {
-                let OpenApiSchema::Ref { sref, title } = item else {
+                let OpenApiSchema::Ref { sref, title, .. } = item else {
                     unreachable!("validated by render_schema");
                 };
                 let sref = strip_schema_ref_prefix(sref)?;
@@ -495,6 +526,13 @@ fn render_any_of_refs(
                         buf.writeln("@JvmStatic");
                         buf.writeln(format!(
                             "public fun {new_func_name}(value: String): {sref} = {sref}.create(value)"
+                        ));
+                    }
+                    OpenApiSchema::Ref { sref: inner, .. } => {
+                        let inner = strip_schema_ref_prefix(inner)?;
+                        buf.writeln("@JvmStatic");
+                        buf.writeln(format!(
+                            "public fun {new_func_name}(value: {inner}): {sref} = {sref}.create(value)"
                         ));
                     }
                     OpenApiSchema::Map {

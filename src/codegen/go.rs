@@ -98,6 +98,28 @@ fn render_schema_top_level(
             );
             Ok(())
         }
+        OpenApiSchema::Ref { sref, .. } => {
+            // Top-level refs are `anyOf` variants wrapping a type that apigen
+            // doesn't generate. They become a struct holding the value, with a
+            // constructor and a `MarshalJSON` that emits the value
+            // transparently.
+            let inner = strip_schema_ref_prefix(sref)?;
+            buf.write_block(format!("type {name} struct"), |buf| {
+                buf.writeln(format!("value {inner}"));
+            });
+
+            buf.write_block(format!("func New{name}(value {inner}) {name}"), |buf| {
+                buf.writeln(format!("return {name}{{value: value}}"));
+            });
+
+            buf.write_block(
+                format!("func (v {name}) MarshalJSON() ([]byte, error)"),
+                |buf| {
+                    buf.writeln("return shimjson.Marshal(v.value)");
+                },
+            );
+            Ok(())
+        }
         _ => {
             buf.start_line();
             buf.write(format!("type {name} "));
@@ -347,7 +369,7 @@ fn render_schema(
             sconst: _,
             title: _,
         } => Err("const in unsupported position")?,
-        OpenApiSchema::Ref { sref, title: _ } => {
+        OpenApiSchema::Ref { sref, .. } => {
             let name = strip_schema_ref_prefix(sref)?;
             buf.write(name)
         }

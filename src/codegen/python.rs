@@ -102,6 +102,7 @@ fn topological_sort(
         let schema = OpenApiSchema::Ref {
             sref: format!("{SCHEMA_REF_PREFIX}{name}"),
             title: None,
+            x_turbopuffer_variant_name: None,
         };
         visit(&spec, &mut visited, &mut result, &schema)?;
     }
@@ -237,7 +238,7 @@ fn render_schema(
             sconst,
             title: _,
         } => buf.write(format!("Literal[\"{sconst}\"]")),
-        OpenApiSchema::Ref { sref, title: _ } => {
+        OpenApiSchema::Ref { sref, .. } => {
             let ref_name = strip_schema_ref_prefix(&sref)?;
             if !defined.contains(ref_name) {
                 // Forward references (including the name we're currently
