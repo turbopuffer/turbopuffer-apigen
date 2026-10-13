@@ -153,7 +153,7 @@ fn render_schema(
             sconst,
             title: _,
         } => buf.write(format!("'{sconst}'")),
-        OpenApiSchema::Ref { sref, title: _ } => match sref.strip_prefix(SCHEMA_REF_PREFIX) {
+        OpenApiSchema::Ref { sref, .. } => match sref.strip_prefix(SCHEMA_REF_PREFIX) {
             None => Err(format!("unsupported reference: {sref}"))?,
             Some(name) => {
                 buf.write(name);
